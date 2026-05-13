@@ -90,6 +90,9 @@ CERT_DATES=""
 VERIFY_RETURN_CODE=""
 TLS12_RESULT="not checked"
 TLS13_RESULT="not checked"
+LEGACY_TLS_STATUS="not observed"
+NULL_CIPHER_CONFIRMED="false"
+TLS_POSTURE="not assessed"
 
 detect_bin() {
   local configured="$1"
@@ -112,6 +115,23 @@ add_finding() {
   local status="$3"
   local description="$4"
   FINDINGS+=("${title}|${severity}|${status}|${description}")
+}
+
+legacy_tls_offered() {
+  awk '
+    {
+      line = tolower($0)
+      if (line ~ /(tlsv? 1[.]0|tlsv?1[.]0|tls 1[.]0|tlsv? 1[.]1|tlsv?1[.]1|tls 1[.]1)/) {
+        if (line ~ /(not offered|not available|not supported|not vulnerable)/) {
+          next
+        }
+        if (line ~ /(offered|enabled|accepted|supported)/) {
+          found = 1
+        }
+      }
+    }
+    END { exit(found ? 0 : 1) }
+  ' "$@"
 }
 
 openssl_cipher() {
@@ -193,6 +213,7 @@ if grep -Eiq 'NULL ciphers|Anonymous NULL|aNULL|eNULL' "${TESTSSL_FILES[@]}"; th
   NULL_VALIDATION_STATUS="ran with exit code ${null_code}"
   null_cipher="$(openssl_cipher "${OUT}/openssl-null-anon.txt" || true)"
   if [[ "${null_cipher}" =~ (NULL|aNULL|eNULL) ]] && ! grep -Eiq 'Cipher is \(NONE\)|no peer certificate|handshake failure|no cipher match|alert handshake failure' "${OUT}/openssl-null-anon.txt"; then
+    NULL_CIPHER_CONFIRMED="true"
     add_finding "Confirmed NULL or anonymous cipher support" "high" "confirmed" "Restricted OpenSSL validation negotiated ${null_cipher}."
   else
     add_finding "testssl NULL or anonymous cipher observation not reproduced" "informational" "not confirmed" "Restricted OpenSSL validation did not negotiate a NULL/eNULL/aNULL cipher."
@@ -201,8 +222,15 @@ else
   printf 'No NULL/eNULL/aNULL indicators found in testssl output.\n' > "${OUT}/openssl-null-anon.txt"
 fi
 
-if grep -Eiq 'TLS 1[.]0|TLSv1[[:space:]]+offered|TLS 1[.]1|TLSv1[.]1[[:space:]]+offered' "${TESTSSL_FILES[@]}"; then
+if legacy_tls_offered "${TESTSSL_FILES[@]}"; then
+  LEGACY_TLS_STATUS="offered"
   add_finding "Legacy TLS protocol offered" "medium" "unvalidated" "testssl output indicates TLS 1.0 or TLS 1.1 may be offered."
+fi
+
+if [[ "${TLS12_RESULT}" == "completed" && "${TLS13_RESULT}" == "completed" && "${LEGACY_TLS_STATUS}" != "offered" && "${NULL_CIPHER_CONFIRMED}" != "true" && "${VERIFY_RETURN_CODE}" =~ ^0[[:space:]]+\(ok\) ]]; then
+  TLS_POSTURE="appears modern based on successful TLS 1.2 and TLS 1.3 negotiation, with no contradictory validated evidence"
+else
+  TLS_POSTURE="review findings and warnings"
 fi
 
 findings_json="${OUT}/tls-findings.json"
@@ -238,6 +266,8 @@ cat > "${OUT}/tls-summary.md" <<EOF
 - Certificate dates: ${CERT_DATES:-not parsed}
 - Verify return code: ${VERIFY_RETURN_CODE:-not parsed}
 - NULL/anonymous cipher validation: ${NULL_VALIDATION_STATUS}
+- Legacy TLS status: ${LEGACY_TLS_STATUS}
+- TLS posture: ${TLS_POSTURE}
 - Findings file: tls-findings.json
 - Warnings: ${WARNINGS[*]:-none}
 EOF

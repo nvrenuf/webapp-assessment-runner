@@ -153,12 +153,16 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
-{
-  printf 'Testing protocols via sockets except NPN+ALPN\n'
-  printf 'TLS 1.2 offered\n'
-  printf 'TLS 1.3 offered\n'
-  printf 'NULL ciphers offered: possible aNULL/eNULL concern\n'
-} | tee "${logfile}" >/dev/null
+if [[ -n "${TESTSSL_FIXTURE:-}" ]]; then
+  printf '%b\n' "${TESTSSL_FIXTURE}" | tee "${logfile}" >/dev/null
+else
+  {
+    printf 'Testing protocols via sockets except NPN+ALPN\n'
+    printf 'TLS 1.2 offered\n'
+    printf 'TLS 1.3 offered\n'
+    printf 'NULL ciphers offered: possible aNULL/eNULL concern\n'
+  } | tee "${logfile}" >/dev/null
+fi
 printf 'testssl fake completed\n'
 EOF
 chmod +x "${fakebin}/testssl"
@@ -264,6 +268,89 @@ grep -q 'OpenSSL TLS 1.3 cipher: TLS_AES_256_GCM_SHA384' "${preflight_workspace}
 grep -q '"title": "testssl NULL or anonymous cipher observation not reproduced"' "${preflight_workspace}/evidence/phase-1-tls/tls-findings.json"
 grep -q '"status": "not confirmed"' "${preflight_workspace}/evidence/phase-1-tls/tls-findings.json"
 grep -q 'Cipher is (NONE)' "${preflight_workspace}/evidence/phase-1-tls/openssl-null-anon.txt"
+
+tls_not_offered_workspace="$(
+  ./init-assessment.sh \
+    --company "TLS Fixtures" \
+    --engagement "Legacy not offered" \
+    --target "https://tls-not-offered.example.test" \
+    --login-path "/login" \
+    --profile safe \
+    --auth none \
+    --tester "Test Runner" \
+    --output-root "${tmp_root}" \
+    --yes
+)"
+TESTSSL_FIXTURE=$'TLS 1.0 not offered\nTLS 1.1 not offered\nTLS 1.2 offered\nTLS 1.3 offered' PATH="${fakebin}:${PATH}" ./phases/01-tls.sh --workspace "${tls_not_offered_workspace}" --yes >/dev/null
+! grep -q '"title": "Legacy TLS protocol offered"' "${tls_not_offered_workspace}/evidence/phase-1-tls/tls-findings.json"
+! grep -q '"severity": "medium"' "${tls_not_offered_workspace}/evidence/phase-1-tls/tls-findings.json"
+grep -q 'TLS posture: appears modern' "${tls_not_offered_workspace}/evidence/phase-1-tls/tls-summary.md"
+
+tls_not_available_workspace="$(
+  ./init-assessment.sh \
+    --company "TLS Fixtures" \
+    --engagement "Legacy negative variants" \
+    --target "https://tls-negative.example.test" \
+    --login-path "/login" \
+    --profile safe \
+    --auth none \
+    --tester "Test Runner" \
+    --output-root "${tmp_root}" \
+    --yes
+)"
+TESTSSL_FIXTURE=$'TLS 1.0 not available\nTLS 1.1 not supported\nTLS 1.2 offered\nTLS 1.3 offered\nnot vulnerable' PATH="${fakebin}:${PATH}" ./phases/01-tls.sh --workspace "${tls_not_available_workspace}" --yes >/dev/null
+! grep -q '"title": "Legacy TLS protocol offered"' "${tls_not_available_workspace}/evidence/phase-1-tls/tls-findings.json"
+grep -q 'TLS posture: appears modern' "${tls_not_available_workspace}/evidence/phase-1-tls/tls-summary.md"
+
+tls10_offered_workspace="$(
+  ./init-assessment.sh \
+    --company "TLS Fixtures" \
+    --engagement "TLS 1.0 offered" \
+    --target "https://tls10-offered.example.test" \
+    --login-path "/login" \
+    --profile safe \
+    --auth none \
+    --tester "Test Runner" \
+    --output-root "${tmp_root}" \
+    --yes
+)"
+TESTSSL_FIXTURE=$'TLS 1.0 offered\nTLS 1.1 not offered\nTLS 1.2 offered\nTLS 1.3 offered' PATH="${fakebin}:${PATH}" ./phases/01-tls.sh --workspace "${tls10_offered_workspace}" --yes >/dev/null
+grep -q '"title": "Legacy TLS protocol offered"' "${tls10_offered_workspace}/evidence/phase-1-tls/tls-findings.json"
+grep -q '"severity": "medium"' "${tls10_offered_workspace}/evidence/phase-1-tls/tls-findings.json"
+
+tls11_offered_workspace="$(
+  ./init-assessment.sh \
+    --company "TLS Fixtures" \
+    --engagement "TLS 1.1 offered" \
+    --target "https://tls11-offered.example.test" \
+    --login-path "/login" \
+    --profile safe \
+    --auth none \
+    --tester "Test Runner" \
+    --output-root "${tmp_root}" \
+    --yes
+)"
+TESTSSL_FIXTURE=$'TLS 1.0 not offered\nTLS 1.1 offered\nTLS 1.2 offered\nTLS 1.3 offered' PATH="${fakebin}:${PATH}" ./phases/01-tls.sh --workspace "${tls11_offered_workspace}" --yes >/dev/null
+grep -q '"title": "Legacy TLS protocol offered"' "${tls11_offered_workspace}/evidence/phase-1-tls/tls-findings.json"
+grep -q '"severity": "medium"' "${tls11_offered_workspace}/evidence/phase-1-tls/tls-findings.json"
+
+tls_modern_workspace="$(
+  ./init-assessment.sh \
+    --company "TLS Fixtures" \
+    --engagement "Modern TLS only" \
+    --target "https://tls-modern.example.test" \
+    --login-path "/login" \
+    --profile safe \
+    --auth none \
+    --tester "Test Runner" \
+    --output-root "${tmp_root}" \
+    --yes
+)"
+TESTSSL_FIXTURE=$'TLS 1.2 offered\nTLS 1.3 offered' PATH="${fakebin}:${PATH}" ./phases/01-tls.sh --workspace "${tls_modern_workspace}" --yes >/dev/null
+! grep -q '"title": "Legacy TLS protocol offered"' "${tls_modern_workspace}/evidence/phase-1-tls/tls-findings.json"
+grep -q '"TLS 1.2 negotiated AEAD cipher"' "${tls_modern_workspace}/evidence/phase-1-tls/tls-findings.json"
+grep -q '"TLS 1.3 negotiated AEAD cipher"' "${tls_modern_workspace}/evidence/phase-1-tls/tls-findings.json"
+grep -q 'TLS posture: appears modern' "${tls_modern_workspace}/evidence/phase-1-tls/tls-summary.md"
 
 regression_workspace="$(
   ./init-assessment.sh \
