@@ -31,11 +31,11 @@ grep -q 'AUTH_ENABLED="false"' "${workspace}/config/target.env"
 grep -q '"auth_mode": "none"' "${workspace}/config/metadata.json"
 grep -q '"auth_enabled": false' "${workspace}/config/metadata.json"
 
-./assess.sh --workspace "${workspace}" --skip-preflight >/dev/null
+./phases/02-headers.sh --workspace "${workspace}" >/dev/null
 ./status.sh --workspace "${workspace}" >/dev/null
 ./report.sh --workspace "${workspace}" >/dev/null
 
-[[ -f "${workspace}/status/phase-1-tls.json" ]]
+[[ -f "${workspace}/status/phase-2-headers.json" ]]
 [[ -f "${workspace}/reports/report.md" ]]
 
 for alias in none no false unauthenticated OFF; do
@@ -98,6 +98,70 @@ printf '%s fake version\n' "$(basename "$0")"
 EOF
   chmod +x "${fakebin}/${tool}"
 done
+
+cat > "${fakebin}/openssl" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "--version" || "${1:-}" == "version" ]]; then
+  printf 'OpenSSL fake 3.0.0\n'
+  exit 0
+fi
+if [[ "${1:-}" == "x509" ]]; then
+  printf 'notBefore=May 13 00:00:00 2026 GMT\n'
+  printf 'notAfter=May 13 00:00:00 2027 GMT\n'
+  exit 0
+fi
+if [[ "${1:-}" == "s_client" ]]; then
+  args="$*"
+  if [[ "${args}" == *"NULL:eNULL:aNULL"* ]]; then
+    printf 'CONNECTED(00000003)\n'
+    printf 'no peer certificate available\n'
+    printf 'SSL handshake has read 0 bytes and written 7 bytes\n'
+    printf 'Cipher is (NONE)\n'
+    printf 'alert handshake failure\n'
+    exit 1
+  fi
+  if [[ "${args}" == *"-tls1_3"* ]]; then
+    printf 'CONNECTED(00000003)\n'
+    printf 'subject=CN = example.com\n'
+    printf 'issuer=C = US, O = Example CA\n'
+    printf 'New, TLSv1.3, Cipher is TLS_AES_256_GCM_SHA384\n'
+    printf 'Verify return code: 0 (ok)\n'
+    exit 0
+  fi
+  printf 'CONNECTED(00000003)\n'
+  printf 'subject=CN = example.com\n'
+  printf 'issuer=C = US, O = Example CA\n'
+  printf 'New, TLSv1.2, Cipher is ECDHE-RSA-AES256-GCM-SHA384\n'
+  printf 'Verify return code: 0 (ok)\n'
+  exit 0
+fi
+printf 'OpenSSL fake 3.0.0\n'
+EOF
+chmod +x "${fakebin}/openssl"
+
+cat > "${fakebin}/testssl" <<'EOF'
+#!/usr/bin/env bash
+logfile=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --logfile)
+      logfile="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+{
+  printf 'Testing protocols via sockets except NPN+ALPN\n'
+  printf 'TLS 1.2 offered\n'
+  printf 'TLS 1.3 offered\n'
+  printf 'NULL ciphers offered: possible aNULL/eNULL concern\n'
+} | tee "${logfile}" >/dev/null
+printf 'testssl fake completed\n'
+EOF
+chmod +x "${fakebin}/testssl"
 
 PATH="${fakebin}:${PATH}" ./install.sh --check-only >/dev/null
 
@@ -186,6 +250,20 @@ grep -q '^JQ_BIN=' "${preflight_workspace}/config/tool-paths.env"
 grep -q '^PYTHON_BIN=' "${preflight_workspace}/config/tool-paths.env"
 grep -q '^TESTSSL_BIN=' "${preflight_workspace}/config/tool-paths.env"
 grep -q '^ZAP_BIN=' "${preflight_workspace}/config/tool-paths.env"
+
+PATH="${fakebin}:${PATH}" ./phases/01-tls.sh --workspace "${preflight_workspace}" --yes >/dev/null
+[[ -f "${preflight_workspace}/status/phase-1-tls.status" ]]
+[[ -f "${preflight_workspace}/evidence/phase-1-tls/tls-summary.md" ]]
+[[ -f "${preflight_workspace}/evidence/phase-1-tls/tls-findings.json" ]]
+[[ -f "${preflight_workspace}/evidence/phase-1-tls/openssl-tls12.txt" ]]
+[[ -f "${preflight_workspace}/evidence/phase-1-tls/openssl-tls13.txt" ]]
+[[ -f "${preflight_workspace}/evidence/phase-1-tls/openssl-null-anon.txt" ]]
+grep -q '^STATUS=success$' "${preflight_workspace}/status/phase-1-tls.status"
+grep -q 'OpenSSL TLS 1.2 cipher: ECDHE-RSA-AES256-GCM-SHA384' "${preflight_workspace}/evidence/phase-1-tls/tls-summary.md"
+grep -q 'OpenSSL TLS 1.3 cipher: TLS_AES_256_GCM_SHA384' "${preflight_workspace}/evidence/phase-1-tls/tls-summary.md"
+grep -q '"title": "testssl NULL or anonymous cipher observation not reproduced"' "${preflight_workspace}/evidence/phase-1-tls/tls-findings.json"
+grep -q '"status": "not confirmed"' "${preflight_workspace}/evidence/phase-1-tls/tls-findings.json"
+grep -q 'Cipher is (NONE)' "${preflight_workspace}/evidence/phase-1-tls/openssl-null-anon.txt"
 
 regression_workspace="$(
   ./init-assessment.sh \
