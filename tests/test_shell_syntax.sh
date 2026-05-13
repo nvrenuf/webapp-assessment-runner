@@ -118,6 +118,15 @@ printf 'apt-get fake version\n'
 EOF
 chmod +x "${fakebin}/apt-get"
 
+cat > "${fakebin}/sudo" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "-n" ]]; then
+  shift
+fi
+exec "$@"
+EOF
+chmod +x "${fakebin}/sudo"
+
 cat > "${fakebin}/getent" <<'EOF'
 #!/usr/bin/env bash
 if [[ "${1:-}" == "hosts" ]]; then
@@ -165,6 +174,7 @@ PATH="${fakebin}:${PATH}" ./phases/00-preflight.sh --workspace "${preflight_work
 [[ -f "${preflight_workspace}/evidence/phase-0-preflight/tool-versions.txt" ]]
 [[ -f "${preflight_workspace}/config/tool-paths.env" ]]
 grep -q '^STATUS=success$' "${preflight_workspace}/status/phase-0-preflight.status"
+grep -q 'APT dependency check: passed' "${preflight_workspace}/evidence/phase-0-preflight/preflight-summary.md"
 grep -q '^CURL_BIN=' "${preflight_workspace}/config/tool-paths.env"
 grep -q '^OPENSSL_BIN=' "${preflight_workspace}/config/tool-paths.env"
 grep -q '^NMAP_BIN=' "${preflight_workspace}/config/tool-paths.env"
@@ -242,6 +252,69 @@ grep -q 'error: missing required target config values:' <<< "${legacy_output}"
 ! grep -q 'mkdir: cannot create directory' <<< "${legacy_output}"
 ! grep -q '/status' <<< "${legacy_output}"
 grep -q '^STATUS=failure$' "${legacy_workspace}/status/phase-0-preflight.status"
+
+apt_permission_workspace="$(
+  ./init-assessment.sh \
+    --company "APT Permission Company" \
+    --engagement "APT permission warning" \
+    --target "https://apt-permission.example.test" \
+    --login-path "/login" \
+    --profile safe \
+    --auth none \
+    --tester "Test Runner" \
+    --output-root "${tmp_root}" \
+    --yes
+)"
+cat > "${fakebin}/sudo" <<'EOF'
+#!/usr/bin/env bash
+printf 'sudo: a password is required\n' >&2
+exit 1
+EOF
+chmod +x "${fakebin}/sudo"
+apt_permission_output="$(PATH="${fakebin}:${PATH}" ./phases/00-preflight.sh --workspace "${apt_permission_workspace}" --yes 2>&1)"
+grep -q 'phase-0-preflight completed' <<< "${apt_permission_output}"
+grep -q '^STATUS=success$' "${apt_permission_workspace}/status/phase-0-preflight.status"
+grep -q 'APT dependency check skipped because passwordless sudo is unavailable. Run `sudo apt-get check` manually for full package-health validation.' "${apt_permission_workspace}/evidence/phase-0-preflight/preflight-summary.md"
+grep -q 'Run `sudo apt-get check` manually for full package-health validation.' "${apt_permission_workspace}/evidence/phase-0-preflight/apt-get-check.txt"
+
+apt_failure_workspace="$(
+  ./init-assessment.sh \
+    --company "APT Failure Company" \
+    --engagement "APT dependency failure" \
+    --target "https://apt-failure.example.test" \
+    --login-path "/login" \
+    --profile safe \
+    --auth none \
+    --tester "Test Runner" \
+    --output-root "${tmp_root}" \
+    --yes
+)"
+cat > "${fakebin}/sudo" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "-n" ]]; then
+  shift
+fi
+if [[ "${1:-}" == "apt-get" && "${2:-}" == "check" ]]; then
+  printf 'The following packages have unmet dependencies:\n'
+  printf ' broken-package : Depends: missing-package but it is not installable\n'
+  exit 100
+fi
+exec "$@"
+EOF
+chmod +x "${fakebin}/sudo"
+apt_failure_output="$(PATH="${fakebin}:${PATH}" ./phases/00-preflight.sh --workspace "${apt_failure_workspace}" --yes 2>&1 || true)"
+grep -q 'error: sudo apt-get check reported package dependency errors.' <<< "${apt_failure_output}"
+grep -q '^STATUS=failure$' "${apt_failure_workspace}/status/phase-0-preflight.status"
+grep -q 'unmet dependencies' "${apt_failure_workspace}/evidence/phase-0-preflight/apt-get-check.txt"
+
+cat > "${fakebin}/sudo" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "-n" ]]; then
+  shift
+fi
+exec "$@"
+EOF
+chmod +x "${fakebin}/sudo"
 
 failure_workspace="$(
   ./init-assessment.sh \

@@ -69,6 +69,8 @@ STATUS_READY="true"
 SUMMARY_FILE="${EVIDENCE_DIR}/preflight-summary.md"
 WARNINGS=()
 PACKAGE_HEALTH="not checked"
+APT_CHECK_STATUS="not checked"
+APT_SKIP_WARNING='APT dependency check skipped because passwordless sudo is unavailable. Run `sudo apt-get check` manually for full package-health validation.'
 DNS_RESULT="not checked"
 CONNECTIVITY_RESULT="not checked"
 OS_SUMMARY="unknown"
@@ -145,17 +147,43 @@ fi
 set +e
 dpkg --audit > "${EVIDENCE_DIR}/dpkg-audit.txt" 2>&1
 dpkg_code=$?
-apt-get check > "${EVIDENCE_DIR}/apt-get-check.txt" 2>&1
-apt_code=$?
 set -e
 
 if [[ "${dpkg_code}" -ne 0 || -s "${EVIDENCE_DIR}/dpkg-audit.txt" ]]; then
   fail_preflight "dpkg reports broken packages. Review ${EVIDENCE_DIR}/dpkg-audit.txt and repair packages before assessment."
 fi
-if [[ "${apt_code}" -ne 0 ]]; then
-  fail_preflight "apt-get check failed. Review ${EVIDENCE_DIR}/apt-get-check.txt and repair APT dependencies before assessment."
+
+if command -v sudo >/dev/null 2>&1; then
+  set +e
+  sudo -n apt-get check > "${EVIDENCE_DIR}/apt-get-check.txt" 2>&1
+  apt_code=$?
+  set -e
+  if [[ "${apt_code}" -eq 0 ]]; then
+    APT_CHECK_STATUS="passed"
+  elif grep -Eqi 'password|a password is required|sudo: a terminal is required|unable to acquire|could not open lock file|permission denied|are you root' "${EVIDENCE_DIR}/apt-get-check.txt"; then
+    APT_CHECK_STATUS="skipped"
+    WARNINGS+=("${APT_SKIP_WARNING}")
+    {
+      printf '\nAPT check was skipped by preflight because passwordless sudo is unavailable.\n'
+      printf 'Run `sudo apt-get check` manually for full package-health validation.\n'
+    } >> "${EVIDENCE_DIR}/apt-get-check.txt"
+  else
+    fail_preflight "sudo apt-get check reported package dependency errors. Review ${EVIDENCE_DIR}/apt-get-check.txt and repair APT dependencies before assessment."
+  fi
+else
+  APT_CHECK_STATUS="skipped"
+  WARNINGS+=("${APT_SKIP_WARNING}")
+  cat > "${EVIDENCE_DIR}/apt-get-check.txt" <<EOF
+APT dependency check skipped because sudo is unavailable.
+Run \`sudo apt-get check\` manually for full package-health validation.
+EOF
 fi
-PACKAGE_HEALTH="healthy"
+
+if [[ "${APT_CHECK_STATUS}" == "passed" ]]; then
+  PACKAGE_HEALTH="healthy"
+else
+  PACKAGE_HEALTH="dpkg healthy; apt-get check skipped"
+fi
 
 TOOL_VERSIONS="${EVIDENCE_DIR}/tool-versions.txt"
 TOOL_PATHS="${WORKSPACE}/config/tool-paths.env"
@@ -230,6 +258,7 @@ if [[ "${YES}" != "true" ]]; then
 - Auth mode: ${AUTH_MODE}
 - OS: ${OS_SUMMARY}
 - Package health: ${PACKAGE_HEALTH}
+- APT dependency check: ${APT_CHECK_STATUS}
 - Tool availability: see tool-versions.txt
 - DNS result: ${DNS_RESULT}
 - Connectivity result: ${CONNECTIVITY_RESULT}
@@ -275,6 +304,7 @@ cat > "${SUMMARY_FILE}" <<EOF
 - Auth mode: ${AUTH_MODE}
 - OS: ${OS_SUMMARY}
 - Package health: ${PACKAGE_HEALTH}
+- APT dependency check: ${APT_CHECK_STATUS}
 - Tool availability: see tool-versions.txt
 - DNS result: ${DNS_RESULT}
 - Connectivity result: ${CONNECTIVITY_RESULT}
