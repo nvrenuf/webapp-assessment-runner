@@ -298,6 +298,159 @@ write_security_header_summaries() {
 
 write_security_header_summaries
 
+write_csp_analysis() {
+  local txt_file="${OUT}/csp-analysis.txt"
+  local md_file="${OUT}/csp-analysis.md"
+  : > "${txt_file}"
+  : > "${md_file}"
+
+  printf '# CSP Analysis\n\n' > "${md_file}"
+
+  for label in base login; do
+    local header_file="${OUT}/${label}-headers-latest.txt"
+    local csp_value
+    csp_value="$(header_value "${header_file}" "content-security-policy")"
+
+    {
+      printf '## %s\n\n' "${label}"
+      if [[ -z "${csp_value}" ]]; then
+        printf -- '- CSP present: no\n'
+        printf -- '- Raw CSP: MISSING\n\n'
+        printf '### Directive Summary\n\n'
+        printf 'No Content-Security-Policy header was captured.\n\n'
+        printf '### Weakness Observations\n\n'
+        printf -- '- CSP missing: missing\n\n'
+      else
+        printf -- '- CSP present: yes\n'
+        printf -- '- Raw CSP:\n\n'
+        printf '```text\n%s\n```\n\n' "${csp_value}"
+        printf '### Directive Summary\n\n'
+        printf '%s\n' "${csp_value}" | awk '
+          BEGIN { FS = ";" }
+          {
+            for (i = 1; i <= NF; i++) {
+              directive = $i
+              gsub(/^[ \t]+|[ \t]+$/, "", directive)
+              if (directive != "") {
+                name = directive
+                sub(/[ \t].*$/, "", name)
+                lower = tolower(name)
+                value = directive
+                sub(/^[^ \t]+[ \t]*/, "", value)
+                if (value == directive) value = ""
+                printf "- %s: %s\n", lower, value
+              }
+            }
+          }
+        '
+        printf '\n### Weakness Observations\n\n'
+      fi
+    } >> "${md_file}"
+
+    printf '%s\n' "${csp_value}" | awk -v label="${label}" -v txt="${txt_file}" -v md="${md_file}" '
+      function trim(value) {
+        gsub(/^[ \t\r\n]+|[ \t\r\n]+$/, "", value)
+        return value
+      }
+      function emit(check, status, details) {
+        printf "%s\t%s\t%s\t%s\n", label, check, status, details >> txt
+        printf "- %s: %s - %s\n", check, status, details >> md
+      }
+      BEGIN {
+        raw = ""
+      }
+      {
+        raw = raw $0
+      }
+      END {
+        if (raw == "") {
+          emit("csp-present", "missing", "Content-Security-Policy header is not present")
+          emit("default-src", "missing", "default-src directive is not defined")
+          emit("script-src-unsafe-inline", "not observed", "script-src directive is not defined")
+          emit("script-src-unsafe-eval", "not observed", "script-src directive is not defined")
+          emit("style-src-unsafe-inline", "not observed", "style-src directive is not defined")
+          emit("missing-form-action", "missing", "form-action directive is not defined")
+          emit("missing-base-uri", "missing", "base-uri directive is not defined")
+          emit("missing-object-src", "missing", "object-src directive is not defined")
+          emit("broad-wildcard-sources", "not observed", "CSP is missing")
+          emit("broad-frame-ancestors", "missing", "frame-ancestors directive is not defined")
+          exit
+        }
+
+        emit("csp-present", "observed", "Content-Security-Policy header is present")
+
+        split(raw, parts, ";")
+        for (i in parts) {
+          directive = trim(parts[i])
+          if (directive == "") continue
+          name = directive
+          sub(/[ \t].*$/, "", name)
+          name = tolower(name)
+          value = directive
+          sub(/^[^ \t]+[ \t]*/, "", value)
+          if (value == directive) value = ""
+          directives[name] = value
+        }
+
+        if ("default-src" in directives) {
+          emit("default-src", "observed", "default-src is defined")
+        } else {
+          emit("default-src", "missing", "default-src directive is not defined")
+        }
+
+        script = ("script-src" in directives) ? directives["script-src"] : ""
+        style = ("style-src" in directives) ? directives["style-src"] : ""
+        if (script ~ /'\''unsafe-inline'\''/) emit("script-src-unsafe-inline", "observed", "script-src includes '\''unsafe-inline'\''")
+        else emit("script-src-unsafe-inline", "not observed", "script-src does not include '\''unsafe-inline'\''")
+        if (script ~ /'\''unsafe-eval'\''/) emit("script-src-unsafe-eval", "observed", "script-src includes '\''unsafe-eval'\''")
+        else emit("script-src-unsafe-eval", "not observed", "script-src does not include '\''unsafe-eval'\''")
+        if (style ~ /'\''unsafe-inline'\''/) emit("style-src-unsafe-inline", "observed", "style-src includes '\''unsafe-inline'\''")
+        else emit("style-src-unsafe-inline", "not observed", "style-src does not include '\''unsafe-inline'\''")
+
+        if ("form-action" in directives) emit("missing-form-action", "observed", "form-action directive is defined")
+        else emit("missing-form-action", "missing", "form-action directive is not defined")
+        if ("base-uri" in directives) emit("missing-base-uri", "observed", "base-uri directive is defined")
+        else emit("missing-base-uri", "missing", "base-uri directive is not defined")
+        if ("object-src" in directives) emit("missing-object-src", "observed", "object-src directive is defined")
+        else emit("missing-object-src", "missing", "object-src directive is not defined")
+
+        broad = 0
+        broad_details = ""
+        for (name in directives) {
+          value = directives[name]
+          if (value ~ /(^|[ \t])\*($|[ \t])/) {
+            broad = 1
+            broad_details = broad_details name " includes bare wildcard; "
+          }
+          if (value ~ /https:\/\/\*\./) {
+            broad = 1
+            broad_details = broad_details name " includes https://*. wildcard; "
+          }
+        }
+        if (broad) emit("broad-wildcard-sources", "needs review", broad_details)
+        else emit("broad-wildcard-sources", "not observed", "no bare * or https://*. source observed")
+
+        if ("frame-ancestors" in directives) {
+          fa = directives["frame-ancestors"]
+          count = split(fa, fa_parts, /[ \t]+/)
+          if (fa ~ /\*/ || fa ~ /https:\/\/\*\./) {
+            emit("broad-frame-ancestors", "needs review", "frame-ancestors contains wildcard source")
+          } else if (fa == "'\''self'\''" || count <= 3) {
+            emit("broad-frame-ancestors", "not observed", "frame-ancestors appears restricted")
+          } else {
+            emit("broad-frame-ancestors", "needs review", "frame-ancestors has multiple allowed sources")
+          }
+        } else {
+          emit("broad-frame-ancestors", "missing", "frame-ancestors directive is not defined")
+        }
+      }
+    '
+    printf '\n' >> "${md_file}"
+  done
+}
+
+write_csp_analysis
+
 cat > "${OUT}/headers-summary.md" <<EOF
 # HTTP Header Capture Summary
 
@@ -316,6 +469,8 @@ cat > "${OUT}/headers-summary.md" <<EOF
 - login redirects: login-redirects-latest.txt
 - security header markdown summary: security-header-summary.md
 - security header text summary: security-header-summary.txt
+- CSP markdown analysis: csp-analysis.md
+- CSP text analysis: csp-analysis.txt
 - console: ${CONSOLE_LOG##*/}
 
 ## HTTP Status
