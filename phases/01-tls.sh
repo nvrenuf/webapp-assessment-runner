@@ -69,7 +69,7 @@ fail_tls() {
 validate_workspace "${WORKSPACE}"
 OUT="$(phase_evidence_dir "${WORKSPACE}" "${PHASE_NAME}")"
 STATUS_READY="true"
-RUN_TS="$(date -u '+%Y%m%dT%H%M%SZ')"
+PHASE_RUN_ID="$(date -u '+%Y%m%dT%H%M%SZ')"
 
 if [[ "${CLEAN}" == "true" ]]; then
   find "${OUT}" -maxdepth 1 -type f \( \
@@ -77,15 +77,22 @@ if [[ "${CLEAN}" == "true" ]]; then
     -name 'testssl-fast-console-[0-9]*T[0-9]*Z.txt' -o \
     -name 'openssl-tls12-[0-9]*T[0-9]*Z.txt' -o \
     -name 'openssl-tls13-[0-9]*T[0-9]*Z.txt' -o \
-    -name 'openssl-null-cipher-validation-[0-9]*T[0-9]*Z.txt' \
+    -name 'openssl-null-anon-[0-9]*T[0-9]*Z.txt' -o \
+    -name 'openssl-null-cipher-validation-[0-9]*T[0-9]*Z.txt' -o \
+    -name 'testssl-fast-latest.log' -o \
+    -name 'testssl-fast-console-latest.txt' -o \
+    -name 'openssl-tls12-latest.txt' -o \
+    -name 'openssl-tls13-latest.txt' -o \
+    -name 'openssl-null-anon-latest.txt' -o \
+    -name 'openssl-null-cipher-validation-latest.txt' \
   \) -delete
 fi
 
-TESTSSL_LOG="${OUT}/testssl-fast-${RUN_TS}.log"
-TESTSSL_CONSOLE="${OUT}/testssl-fast-console-${RUN_TS}.txt"
-OPENSSL_TLS12="${OUT}/openssl-tls12-${RUN_TS}.txt"
-OPENSSL_TLS13="${OUT}/openssl-tls13-${RUN_TS}.txt"
-OPENSSL_NULL="${OUT}/openssl-null-cipher-validation-${RUN_TS}.txt"
+TESTSSL_LOG="${OUT}/testssl-fast-${PHASE_RUN_ID}.log"
+TESTSSL_CONSOLE="${OUT}/testssl-fast-console-${PHASE_RUN_ID}.txt"
+OPENSSL_TLS12="${OUT}/openssl-tls12-${PHASE_RUN_ID}.txt"
+OPENSSL_TLS13="${OUT}/openssl-tls13-${PHASE_RUN_ID}.txt"
+OPENSSL_NULL="${OUT}/openssl-null-anon-${PHASE_RUN_ID}.txt"
 
 copy_latest() {
   local source_file="$1"
@@ -245,7 +252,7 @@ if grep -Eiq 'NULL ciphers|Anonymous NULL|aNULL|eNULL' "${TESTSSL_FILES[@]}"; th
   "${OPENSSL_BIN}" s_client -connect "${TARGET_HOST}:443" -servername "${TARGET_HOST}" -cipher 'NULL:eNULL:aNULL' -tls1_2 </dev/null > "${OPENSSL_NULL}" 2>&1
   null_code=$?
   set -e
-  copy_latest "${OPENSSL_NULL}" "${OUT}/openssl-null-cipher-validation-latest.txt"
+  copy_latest "${OPENSSL_NULL}" "${OUT}/openssl-null-anon-latest.txt"
   NULL_VALIDATION_STATUS="ran with exit code ${null_code}"
   null_cipher="$(openssl_cipher "${OPENSSL_NULL}" || true)"
   if [[ "${null_cipher}" =~ (NULL|aNULL|eNULL) ]] && ! grep -Eiq 'Cipher is \(NONE\)|no peer certificate|handshake failure|no cipher match|alert handshake failure' "${OPENSSL_NULL}"; then
@@ -256,7 +263,7 @@ if grep -Eiq 'NULL ciphers|Anonymous NULL|aNULL|eNULL' "${TESTSSL_FILES[@]}"; th
   fi
 else
   printf 'No NULL/eNULL/aNULL indicators found in testssl output.\n' > "${OPENSSL_NULL}"
-  copy_latest "${OPENSSL_NULL}" "${OUT}/openssl-null-cipher-validation-latest.txt"
+  copy_latest "${OPENSSL_NULL}" "${OUT}/openssl-null-anon-latest.txt"
 fi
 
 if legacy_tls_offered "${TESTSSL_FILES[@]}"; then

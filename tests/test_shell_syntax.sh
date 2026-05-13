@@ -263,22 +263,36 @@ PATH="${fakebin}:${PATH}" ./phases/01-tls.sh --workspace "${preflight_workspace}
 [[ -f "${preflight_workspace}/evidence/phase-1-tls/testssl-fast-console-latest.txt" ]]
 [[ -f "${preflight_workspace}/evidence/phase-1-tls/openssl-tls12-latest.txt" ]]
 [[ -f "${preflight_workspace}/evidence/phase-1-tls/openssl-tls13-latest.txt" ]]
-[[ -f "${preflight_workspace}/evidence/phase-1-tls/openssl-null-cipher-validation-latest.txt" ]]
+[[ -f "${preflight_workspace}/evidence/phase-1-tls/openssl-null-anon-latest.txt" ]]
 first_tls_raw_count="$(find "${preflight_workspace}/evidence/phase-1-tls" -maxdepth 1 -type f -name 'testssl-fast-[0-9]*T[0-9]*Z.log' | wc -l)"
+first_null_raw_count="$(find "${preflight_workspace}/evidence/phase-1-tls" -maxdepth 1 -type f -name 'openssl-null-anon-[0-9]*T[0-9]*Z.txt' | wc -l)"
+[[ "${first_tls_raw_count}" -eq 1 ]]
+[[ "${first_null_raw_count}" -eq 1 ]]
 grep -q '^STATUS=success$' "${preflight_workspace}/status/phase-1-tls.status"
 grep -q 'OpenSSL TLS 1.2 cipher: ECDHE-RSA-AES256-GCM-SHA384' "${preflight_workspace}/evidence/phase-1-tls/tls-summary.md"
 grep -q 'OpenSSL TLS 1.3 cipher: TLS_AES_256_GCM_SHA384' "${preflight_workspace}/evidence/phase-1-tls/tls-summary.md"
 grep -q '"title": "testssl NULL or anonymous cipher observation not reproduced"' "${preflight_workspace}/evidence/phase-1-tls/tls-findings.json"
 grep -q '"status": "not confirmed"' "${preflight_workspace}/evidence/phase-1-tls/tls-findings.json"
-grep -q 'Cipher is (NONE)' "${preflight_workspace}/evidence/phase-1-tls/openssl-null-cipher-validation-latest.txt"
+grep -q 'Cipher is (NONE)' "${preflight_workspace}/evidence/phase-1-tls/openssl-null-anon-latest.txt"
 sleep 1
 PATH="${fakebin}:${PATH}" ./phases/01-tls.sh --workspace "${preflight_workspace}" --yes >/dev/null
 second_tls_raw_count="$(find "${preflight_workspace}/evidence/phase-1-tls" -maxdepth 1 -type f -name 'testssl-fast-[0-9]*T[0-9]*Z.log' | wc -l)"
+second_null_raw_count="$(find "${preflight_workspace}/evidence/phase-1-tls" -maxdepth 1 -type f -name 'openssl-null-anon-[0-9]*T[0-9]*Z.txt' | wc -l)"
 [[ "${second_tls_raw_count}" -gt "${first_tls_raw_count}" ]]
+[[ "${second_null_raw_count}" -gt "${first_null_raw_count}" ]]
 grep -q '^STATUS=success$' "${preflight_workspace}/status/phase-1-tls.status"
 PATH="${fakebin}:${PATH}" ./phases/01-tls.sh --workspace "${preflight_workspace}" --yes --clean >/dev/null
 clean_tls_raw_count="$(find "${preflight_workspace}/evidence/phase-1-tls" -maxdepth 1 -type f -name 'testssl-fast-[0-9]*T[0-9]*Z.log' | wc -l)"
+clean_null_raw_count="$(find "${preflight_workspace}/evidence/phase-1-tls" -maxdepth 1 -type f -name 'openssl-null-anon-[0-9]*T[0-9]*Z.txt' | wc -l)"
 [[ "${clean_tls_raw_count}" -eq 1 ]]
+[[ "${clean_null_raw_count}" -eq 1 ]]
+[[ -f "${preflight_workspace}/evidence/phase-1-tls/testssl-fast-latest.log" ]]
+[[ -f "${preflight_workspace}/evidence/phase-1-tls/testssl-fast-console-latest.txt" ]]
+[[ -f "${preflight_workspace}/evidence/phase-1-tls/openssl-tls12-latest.txt" ]]
+[[ -f "${preflight_workspace}/evidence/phase-1-tls/openssl-tls13-latest.txt" ]]
+[[ -f "${preflight_workspace}/evidence/phase-1-tls/openssl-null-anon-latest.txt" ]]
+[[ -f "${preflight_workspace}/evidence/phase-1-tls/tls-summary.md" ]]
+[[ -f "${preflight_workspace}/evidence/phase-1-tls/tls-findings.json" ]]
 
 tls_not_offered_workspace="$(
   ./init-assessment.sh \
