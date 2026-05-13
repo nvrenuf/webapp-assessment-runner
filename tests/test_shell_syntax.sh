@@ -91,13 +91,15 @@ grep -q 'error: workspace does not exist:' <<< "${missing_output}"
 fakebin="${tmp_root}/fakebin"
 mkdir -p "${fakebin}"
 
-for tool in openssl nmap nikto nuclei jq python3 testssl zaproxy; do
+for tool in curl openssl nmap nikto nuclei jq python3 testssl zaproxy; do
   cat > "${fakebin}/${tool}" <<'EOF'
 #!/usr/bin/env bash
 printf '%s fake version\n' "$(basename "$0")"
 EOF
   chmod +x "${fakebin}/${tool}"
 done
+
+PATH="${fakebin}:${PATH}" ./install.sh --check-only >/dev/null
 
 cat > "${fakebin}/dpkg" <<'EOF'
 #!/usr/bin/env bash

@@ -32,11 +32,14 @@ Replace `<run-id>` with the run directory created by `init-assessment.sh`.
 
 ## Install
 
-`install.sh` is the only script intended to run with elevated privileges. It checks for common Kali tools and prints package guidance. Assessment phases do not install packages and do not upgrade the system.
+`install.sh` checks Kali/Debian dependencies and can optionally install missing apt packages. It never runs `apt update`, `apt upgrade`, or `apt full-upgrade`. Assessment phases do not install packages and do not upgrade the system.
 
 ```bash
-sudo ./install.sh
+./install.sh --check-only
+sudo ./install.sh --install-deps
 ```
+
+Required tools are `bash`, `curl`, `openssl`, `nmap`, `nikto`, `nuclei`, `jq`, and `python3`. Flexible tools are `testssl` or `testssl.sh`, and `zaproxy`, `/usr/share/zaproxy/zap.sh`, or `owasp-zap`.
 
 ## Create Assessment
 
