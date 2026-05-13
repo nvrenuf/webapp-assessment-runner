@@ -77,10 +77,12 @@ if [[ "${CLEAN}" == "true" ]]; then
     -name '*-headers-[0-9]*T[0-9]*Z.txt' -o \
     -name '*-body-[0-9]*T[0-9]*Z.html' -o \
     -name '*-redirects-[0-9]*T[0-9]*Z.txt' -o \
+    -name '*-cors-headers-[0-9]*T[0-9]*Z.txt' -o \
     -name 'phase-2-headers-console-[0-9]*T[0-9]*Z.txt' -o \
     -name '*-headers-latest.txt' -o \
     -name '*-body-latest.html' -o \
-    -name '*-redirects-latest.txt' \
+    -name '*-redirects-latest.txt' -o \
+    -name '*-cors-headers-latest.txt' \
   \) -delete
 fi
 
@@ -120,6 +122,7 @@ capture_target() {
   local headers_file="${OUT}/${label}-headers-${PHASE_RUN_ID}.txt"
   local body_file="${OUT}/${label}-body-${PHASE_RUN_ID}.html"
   local redirects_file="${OUT}/${label}-redirects-${PHASE_RUN_ID}.txt"
+  local cors_headers_file="${OUT}/${label}-cors-headers-${PHASE_RUN_ID}.txt"
 
   log_console "Capturing ${label}: ${url}"
 
@@ -128,17 +131,23 @@ capture_target() {
   local capture_code=$?
   "${CURL_BIN}" -k -s -IL --max-time 30 "${url}" > "${redirects_file}" 2>> "${CONSOLE_LOG}"
   local redirects_code=$?
+  "${CURL_BIN}" -k -s -H "Origin: https://evil.example" -D "${cors_headers_file}" -o /dev/null --max-time 30 "${url}" >> "${CONSOLE_LOG}" 2>&1
+  local cors_code=$?
   set -e
 
   copy_latest "${headers_file}" "${OUT}/${label}-headers-latest.txt"
   copy_latest "${body_file}" "${OUT}/${label}-body-latest.html"
   copy_latest "${redirects_file}" "${OUT}/${label}-redirects-latest.txt"
+  copy_latest "${cors_headers_file}" "${OUT}/${label}-cors-headers-latest.txt"
 
   if [[ "${capture_code}" -ne 0 ]]; then
     fail_headers "curl header/body capture failed for ${label} (${url})"
   fi
   if [[ "${redirects_code}" -ne 0 ]]; then
     fail_headers "curl redirect capture failed for ${label} (${url})"
+  fi
+  if [[ "${cors_code}" -ne 0 ]]; then
+    fail_headers "curl CORS header capture failed for ${label} (${url})"
   fi
 }
 
@@ -451,6 +460,73 @@ write_csp_analysis() {
 
 write_csp_analysis
 
+write_cors_analysis() {
+  local txt_file="${OUT}/cors-analysis.txt"
+  local md_file="${OUT}/cors-analysis.md"
+  : > "${txt_file}"
+  : > "${md_file}"
+
+  printf '# CORS Analysis\n\n' > "${md_file}"
+
+  for label in base login; do
+    local header_file="${OUT}/${label}-cors-headers-latest.txt"
+    local acao acac acam acah vary
+    acao="$(header_value "${header_file}" "access-control-allow-origin")"
+    acac="$(header_value "${header_file}" "access-control-allow-credentials")"
+    acam="$(header_value "${header_file}" "access-control-allow-methods")"
+    acah="$(header_value "${header_file}" "access-control-allow-headers")"
+    vary="$(header_value "${header_file}" "vary")"
+
+    local arbitrary_status="not observed"
+    local wildcard_status="not observed"
+    local credentials_status="not observed"
+    local risky_status="not observed"
+
+    if [[ "${acao}" == "https://evil.example" ]]; then
+      arbitrary_status="observed"
+    fi
+    if [[ "${acao}" == "*" ]]; then
+      wildcard_status="observed"
+    fi
+    if [[ "${acac,,}" == "true" ]]; then
+      credentials_status="observed"
+    fi
+    if [[ "${credentials_status}" == "observed" && ( "${arbitrary_status}" == "observed" || "${wildcard_status}" == "observed" ) ]]; then
+      risky_status="observed"
+    fi
+
+    {
+      printf '%s\tarbitrary-origin-reflection\t%s\tACAO=%s\n' "${label}" "${arbitrary_status}" "${acao:-MISSING}"
+      printf '%s\twildcard-origin\t%s\tACAO=%s\n' "${label}" "${wildcard_status}" "${acao:-MISSING}"
+      printf '%s\tcredentials-allowed\t%s\tACAC=%s\n' "${label}" "${credentials_status}" "${acac:-MISSING}"
+      printf '%s\trisky-cors-combination\t%s\tACAO=%s; ACAC=%s\n' "${label}" "${risky_status}" "${acao:-MISSING}" "${acac:-MISSING}"
+    } >> "${txt_file}"
+
+    {
+      printf '## %s\n\n' "${label}"
+      printf '### Raw CORS Response Headers\n\n'
+      printf '```text\n'
+      if [[ -f "${header_file}" ]]; then
+        cat "${header_file}"
+      else
+        printf 'MISSING\n'
+      fi
+      printf '\n```\n\n'
+      printf -- '- access-control-allow-origin: %s\n' "${acao:-MISSING}"
+      printf -- '- access-control-allow-credentials: %s\n' "${acac:-MISSING}"
+      printf -- '- access-control-allow-methods: %s\n' "${acam:-MISSING}"
+      printf -- '- access-control-allow-headers: %s\n' "${acah:-MISSING}"
+      printf -- '- vary: %s\n' "${vary:-MISSING}"
+      printf -- '- arbitrary-origin-reflection: %s\n' "${arbitrary_status}"
+      printf -- '- wildcard-origin: %s\n' "${wildcard_status}"
+      printf -- '- credentials-allowed: %s\n' "${credentials_status}"
+      printf -- '- risky-cors-combination: %s\n\n' "${risky_status}"
+    } >> "${md_file}"
+  done
+}
+
+write_cors_analysis
+
 cat > "${OUT}/headers-summary.md" <<EOF
 # HTTP Header Capture Summary
 
@@ -467,10 +543,14 @@ cat > "${OUT}/headers-summary.md" <<EOF
 - login headers: login-headers-latest.txt
 - login body: login-body-latest.html
 - login redirects: login-redirects-latest.txt
+- base CORS headers: base-cors-headers-latest.txt
+- login CORS headers: login-cors-headers-latest.txt
 - security header markdown summary: security-header-summary.md
 - security header text summary: security-header-summary.txt
 - CSP markdown analysis: csp-analysis.md
 - CSP text analysis: csp-analysis.txt
+- CORS markdown analysis: cors-analysis.md
+- CORS text analysis: cors-analysis.txt
 - console: ${CONSOLE_LOG##*/}
 
 ## HTTP Status

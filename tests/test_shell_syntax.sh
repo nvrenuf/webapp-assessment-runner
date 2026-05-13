@@ -212,6 +212,7 @@ cat > "${fakebin}/curl" <<'EOF'
 headers=""
 body=""
 redirects="false"
+cors="false"
 url=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -227,6 +228,12 @@ while [[ $# -gt 0 ]]; do
       redirects="true"
       shift
       ;;
+    -H)
+      if [[ "${2:-}" == "Origin: https://evil.example" ]]; then
+        cors="true"
+      fi
+      shift 2
+      ;;
     --max-time)
       shift 2
       ;;
@@ -241,6 +248,16 @@ while [[ $# -gt 0 ]]; do
 done
 if [[ "${redirects}" == "true" ]]; then
   printf 'HTTP/1.1 301 Moved Permanently\r\nLocation: %s/\r\n\r\nHTTP/2 200 OK\r\nServer: fake\r\n\r\n' "${url}"
+  exit 0
+fi
+if [[ "${cors}" == "true" ]]; then
+  if [[ "${CORS_FIXTURE:-}" == "reflect" ]]; then
+    printf 'HTTP/2 200 OK\r\nAccess-Control-Allow-Origin: https://evil.example\r\nVary: Origin\r\n\r\n' > "${headers}"
+  elif [[ "${CORS_FIXTURE:-}" == "wildcard-credentials" ]]; then
+    printf 'HTTP/2 200 OK\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Credentials: true\r\nAccess-Control-Allow-Methods: GET, POST\r\nAccess-Control-Allow-Headers: X-Test\r\n\r\n' > "${headers}"
+  else
+    printf 'HTTP/2 200 OK\r\nServer: fake-cors-none\r\n\r\n' > "${headers}"
+  fi
   exit 0
 fi
 if [[ "${url}" == *"/login" ]]; then
@@ -308,15 +325,21 @@ PATH="${fakebin}:${PATH}" ./phases/02-headers.sh --workspace "${preflight_worksp
 [[ -f "${preflight_workspace}/evidence/phase-2-headers/base-headers-latest.txt" ]]
 [[ -f "${preflight_workspace}/evidence/phase-2-headers/base-body-latest.html" ]]
 [[ -f "${preflight_workspace}/evidence/phase-2-headers/base-redirects-latest.txt" ]]
+[[ -f "${preflight_workspace}/evidence/phase-2-headers/base-cors-headers-latest.txt" ]]
 [[ -f "${preflight_workspace}/evidence/phase-2-headers/login-headers-latest.txt" ]]
 [[ -f "${preflight_workspace}/evidence/phase-2-headers/login-body-latest.html" ]]
 [[ -f "${preflight_workspace}/evidence/phase-2-headers/login-redirects-latest.txt" ]]
+[[ -f "${preflight_workspace}/evidence/phase-2-headers/login-cors-headers-latest.txt" ]]
 [[ -f "${preflight_workspace}/evidence/phase-2-headers/security-header-summary.md" ]]
 [[ -f "${preflight_workspace}/evidence/phase-2-headers/security-header-summary.txt" ]]
 [[ -f "${preflight_workspace}/evidence/phase-2-headers/csp-analysis.md" ]]
 [[ -f "${preflight_workspace}/evidence/phase-2-headers/csp-analysis.txt" ]]
-first_headers_raw_count="$(find "${preflight_workspace}/evidence/phase-2-headers" -maxdepth 1 -type f -name '*-headers-[0-9]*T[0-9]*Z.txt' | wc -l)"
+[[ -f "${preflight_workspace}/evidence/phase-2-headers/cors-analysis.md" ]]
+[[ -f "${preflight_workspace}/evidence/phase-2-headers/cors-analysis.txt" ]]
+first_headers_raw_count="$(find "${preflight_workspace}/evidence/phase-2-headers" -maxdepth 1 -type f \( -name 'base-headers-[0-9]*T[0-9]*Z.txt' -o -name 'login-headers-[0-9]*T[0-9]*Z.txt' \) | wc -l)"
 [[ "${first_headers_raw_count}" -eq 2 ]]
+first_cors_raw_count="$(find "${preflight_workspace}/evidence/phase-2-headers" -maxdepth 1 -type f -name '*-cors-headers-[0-9]*T[0-9]*Z.txt' | wc -l)"
+[[ "${first_cors_raw_count}" -eq 2 ]]
 grep -q '^STATUS=success$' "${preflight_workspace}/status/phase-2-headers.status"
 grep -q 'base: HTTP/2 200 OK' "${preflight_workspace}/evidence/phase-2-headers/headers-summary.md"
 grep -q 'login: HTTP/2 200 OK' "${preflight_workspace}/evidence/phase-2-headers/headers-summary.md"
@@ -338,16 +361,29 @@ grep -q $'login\tbroad-wildcard-sources\tneeds review' "${preflight_workspace}/e
 grep -q $'login\tbroad-frame-ancestors\tneeds review\tframe-ancestors contains wildcard source' "${preflight_workspace}/evidence/phase-2-headers/csp-analysis.txt"
 grep -q $'login\tdefault-src\tobserved\tdefault-src is defined' "${preflight_workspace}/evidence/phase-2-headers/csp-analysis.txt"
 grep -q 'CSP markdown analysis: csp-analysis.md' "${preflight_workspace}/evidence/phase-2-headers/headers-summary.md"
+grep -q $'base\tarbitrary-origin-reflection\tnot observed\tACAO=MISSING' "${preflight_workspace}/evidence/phase-2-headers/cors-analysis.txt"
+grep -q $'login\trisky-cors-combination\tnot observed\tACAO=MISSING; ACAC=MISSING' "${preflight_workspace}/evidence/phase-2-headers/cors-analysis.txt"
+grep -q 'CORS markdown analysis: cors-analysis.md' "${preflight_workspace}/evidence/phase-2-headers/headers-summary.md"
 sleep 1
-PATH="${fakebin}:${PATH}" ./phases/02-headers.sh --workspace "${preflight_workspace}" --yes >/dev/null
-second_headers_raw_count="$(find "${preflight_workspace}/evidence/phase-2-headers" -maxdepth 1 -type f -name '*-headers-[0-9]*T[0-9]*Z.txt' | wc -l)"
+CORS_FIXTURE=reflect PATH="${fakebin}:${PATH}" ./phases/02-headers.sh --workspace "${preflight_workspace}" --yes >/dev/null
+second_headers_raw_count="$(find "${preflight_workspace}/evidence/phase-2-headers" -maxdepth 1 -type f \( -name 'base-headers-[0-9]*T[0-9]*Z.txt' -o -name 'login-headers-[0-9]*T[0-9]*Z.txt' \) | wc -l)"
+second_cors_raw_count="$(find "${preflight_workspace}/evidence/phase-2-headers" -maxdepth 1 -type f -name '*-cors-headers-[0-9]*T[0-9]*Z.txt' | wc -l)"
 [[ "${second_headers_raw_count}" -gt "${first_headers_raw_count}" ]]
-PATH="${fakebin}:${PATH}" ./phases/02-headers.sh --workspace "${preflight_workspace}" --yes --clean >/dev/null
-clean_headers_raw_count="$(find "${preflight_workspace}/evidence/phase-2-headers" -maxdepth 1 -type f -name '*-headers-[0-9]*T[0-9]*Z.txt' | wc -l)"
+[[ "${second_cors_raw_count}" -gt "${first_cors_raw_count}" ]]
+grep -q $'base\tarbitrary-origin-reflection\tobserved\tACAO=https://evil.example' "${preflight_workspace}/evidence/phase-2-headers/cors-analysis.txt"
+CORS_FIXTURE=wildcard-credentials PATH="${fakebin}:${PATH}" ./phases/02-headers.sh --workspace "${preflight_workspace}" --yes --clean >/dev/null
+clean_headers_raw_count="$(find "${preflight_workspace}/evidence/phase-2-headers" -maxdepth 1 -type f \( -name 'base-headers-[0-9]*T[0-9]*Z.txt' -o -name 'login-headers-[0-9]*T[0-9]*Z.txt' \) | wc -l)"
+clean_cors_raw_count="$(find "${preflight_workspace}/evidence/phase-2-headers" -maxdepth 1 -type f -name '*-cors-headers-[0-9]*T[0-9]*Z.txt' | wc -l)"
 [[ "${clean_headers_raw_count}" -eq 2 ]]
+[[ "${clean_cors_raw_count}" -eq 2 ]]
 [[ -f "${preflight_workspace}/evidence/phase-2-headers/base-headers-latest.txt" ]]
 [[ -f "${preflight_workspace}/evidence/phase-2-headers/login-headers-latest.txt" ]]
+[[ -f "${preflight_workspace}/evidence/phase-2-headers/base-cors-headers-latest.txt" ]]
+[[ -f "${preflight_workspace}/evidence/phase-2-headers/login-cors-headers-latest.txt" ]]
 [[ -f "${preflight_workspace}/evidence/phase-2-headers/headers-summary.md" ]]
+grep -Fq $'base\twildcard-origin\tobserved\tACAO=*' "${preflight_workspace}/evidence/phase-2-headers/cors-analysis.txt"
+grep -q $'base\tcredentials-allowed\tobserved\tACAC=true' "${preflight_workspace}/evidence/phase-2-headers/cors-analysis.txt"
+grep -Fq $'base\trisky-cors-combination\tobserved\tACAO=*; ACAC=true' "${preflight_workspace}/evidence/phase-2-headers/cors-analysis.txt"
 
 PATH="${fakebin}:${PATH}" ./phases/01-tls.sh --workspace "${preflight_workspace}" --yes >/dev/null
 [[ -f "${preflight_workspace}/status/phase-1-tls.status" ]]
