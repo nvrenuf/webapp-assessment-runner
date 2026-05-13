@@ -31,11 +31,11 @@ grep -q 'AUTH_ENABLED="false"' "${workspace}/config/target.env"
 grep -q '"auth_mode": "none"' "${workspace}/config/metadata.json"
 grep -q '"auth_enabled": false' "${workspace}/config/metadata.json"
 
-./phases/02-headers.sh --workspace "${workspace}" >/dev/null
+./phases/03-nikto.sh --workspace "${workspace}" >/dev/null
 ./status.sh --workspace "${workspace}" >/dev/null
 ./report.sh --workspace "${workspace}" >/dev/null
 
-[[ -f "${workspace}/status/phase-2-headers.json" ]]
+[[ -f "${workspace}/status/phase-3-nikto.json" ]]
 [[ -f "${workspace}/reports/report.md" ]]
 
 for alias in none no false unauthenticated OFF; do
@@ -210,18 +210,41 @@ chmod +x "${fakebin}/getent"
 cat > "${fakebin}/curl" <<'EOF'
 #!/usr/bin/env bash
 headers=""
+body=""
+redirects="false"
+url=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -D)
       headers="$2"
       shift 2
       ;;
+    -o)
+      body="$2"
+      shift 2
+      ;;
+    -IL|-LI)
+      redirects="true"
+      shift
+      ;;
+    --max-time)
+      shift 2
+      ;;
+    -*)
+      shift
+      ;;
     *)
+      url="$1"
       shift
       ;;
   esac
 done
-printf 'HTTP/1.1 200 OK\r\nServer: fake\r\n\r\n' > "${headers}"
+if [[ "${redirects}" == "true" ]]; then
+  printf 'HTTP/1.1 301 Moved Permanently\r\nLocation: %s/\r\n\r\nHTTP/2 200 OK\r\nServer: fake\r\n\r\n' "${url}"
+  exit 0
+fi
+printf 'HTTP/2 200 OK\r\nServer: fake\r\nX-Test-URL: %s\r\n\r\n' "${url}" > "${headers}"
+printf '<html><body>%s</body></html>\n' "${url}" > "${body}"
 EOF
 chmod +x "${fakebin}/curl"
 
@@ -254,6 +277,32 @@ grep -q '^JQ_BIN=' "${preflight_workspace}/config/tool-paths.env"
 grep -q '^PYTHON_BIN=' "${preflight_workspace}/config/tool-paths.env"
 grep -q '^TESTSSL_BIN=' "${preflight_workspace}/config/tool-paths.env"
 grep -q '^ZAP_BIN=' "${preflight_workspace}/config/tool-paths.env"
+
+PATH="${fakebin}:${PATH}" ./phases/02-headers.sh --workspace "${preflight_workspace}" --yes >/dev/null
+[[ -f "${preflight_workspace}/status/phase-2-headers.status" ]]
+[[ -f "${preflight_workspace}/evidence/phase-2-headers/headers-summary.md" ]]
+[[ -f "${preflight_workspace}/evidence/phase-2-headers/base-headers-latest.txt" ]]
+[[ -f "${preflight_workspace}/evidence/phase-2-headers/base-body-latest.html" ]]
+[[ -f "${preflight_workspace}/evidence/phase-2-headers/base-redirects-latest.txt" ]]
+[[ -f "${preflight_workspace}/evidence/phase-2-headers/login-headers-latest.txt" ]]
+[[ -f "${preflight_workspace}/evidence/phase-2-headers/login-body-latest.html" ]]
+[[ -f "${preflight_workspace}/evidence/phase-2-headers/login-redirects-latest.txt" ]]
+first_headers_raw_count="$(find "${preflight_workspace}/evidence/phase-2-headers" -maxdepth 1 -type f -name '*-headers-[0-9]*T[0-9]*Z.txt' | wc -l)"
+[[ "${first_headers_raw_count}" -eq 2 ]]
+grep -q '^STATUS=success$' "${preflight_workspace}/status/phase-2-headers.status"
+grep -q 'base: HTTP/2 200 OK' "${preflight_workspace}/evidence/phase-2-headers/headers-summary.md"
+grep -q 'login: HTTP/2 200 OK' "${preflight_workspace}/evidence/phase-2-headers/headers-summary.md"
+grep -q 'HTTP/1.1 301 Moved Permanently' "${preflight_workspace}/evidence/phase-2-headers/base-redirects-latest.txt"
+sleep 1
+PATH="${fakebin}:${PATH}" ./phases/02-headers.sh --workspace "${preflight_workspace}" --yes >/dev/null
+second_headers_raw_count="$(find "${preflight_workspace}/evidence/phase-2-headers" -maxdepth 1 -type f -name '*-headers-[0-9]*T[0-9]*Z.txt' | wc -l)"
+[[ "${second_headers_raw_count}" -gt "${first_headers_raw_count}" ]]
+PATH="${fakebin}:${PATH}" ./phases/02-headers.sh --workspace "${preflight_workspace}" --yes --clean >/dev/null
+clean_headers_raw_count="$(find "${preflight_workspace}/evidence/phase-2-headers" -maxdepth 1 -type f -name '*-headers-[0-9]*T[0-9]*Z.txt' | wc -l)"
+[[ "${clean_headers_raw_count}" -eq 2 ]]
+[[ -f "${preflight_workspace}/evidence/phase-2-headers/base-headers-latest.txt" ]]
+[[ -f "${preflight_workspace}/evidence/phase-2-headers/login-headers-latest.txt" ]]
+[[ -f "${preflight_workspace}/evidence/phase-2-headers/headers-summary.md" ]]
 
 PATH="${fakebin}:${PATH}" ./phases/01-tls.sh --workspace "${preflight_workspace}" --yes >/dev/null
 [[ -f "${preflight_workspace}/status/phase-1-tls.status" ]]
