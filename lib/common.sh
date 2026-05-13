@@ -63,11 +63,57 @@ parse_workspace_arg() {
   export WORKSPACE
 }
 
+shell_quote() {
+  local value="$1"
+  printf "'%s'" "${value//\'/\'\\\'\'}"
+}
+
 validate_workspace() {
   local workspace="$1"
   [[ -d "${workspace}" ]] || die "workspace does not exist: ${workspace}"
   [[ -d "${workspace}/config" ]] || die "workspace missing config directory: ${workspace}"
   [[ -f "${workspace}/config/target.env" ]] || die "workspace missing config/target.env: ${workspace}"
+}
+
+load_env_file() {
+  local env_file="$1"
+  [[ -f "${env_file}" ]] || die "env file does not exist: ${env_file}"
+  set -a
+  # shellcheck disable=SC1090
+  source "${env_file}"
+  set +a
+}
+
+require_env_vars() {
+  local missing=()
+  local var_name
+  for var_name in "$@"; do
+    if [[ -z "${!var_name+x}" || -z "${!var_name}" ]]; then
+      missing+=("${var_name}")
+    fi
+  done
+  if [[ "${#missing[@]}" -gt 0 ]]; then
+    die "missing required target config values: ${missing[*]}"
+  fi
+}
+
+command_path() {
+  local command_name="$1"
+  command -v "${command_name}" 2>/dev/null
+}
+
+first_existing_command() {
+  local candidate
+  for candidate in "$@"; do
+    if [[ "${candidate}" = /* && -x "${candidate}" ]]; then
+      printf '%s\n' "${candidate}"
+      return 0
+    fi
+    if [[ "${candidate}" != /* ]]; then
+      command_path "${candidate}" && return 0
+    fi
+  done
+  return 1
 }
 
 ensure_workspace_dirs() {

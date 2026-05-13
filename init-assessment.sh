@@ -97,6 +97,15 @@ fi
 TARGET_SLUG="$(slugify "${TARGET}")"
 RUN_ID="$(utc_run_id)"
 WORKSPACE="$(absolute_path "${OUTPUT_ROOT}")/${COMPANY_SLUG}/${TARGET_SLUG}/${RUN_ID}"
+TARGET_BASE_URL="${TARGET%/}"
+TARGET_HOST="$(printf '%s' "${TARGET_BASE_URL}" | sed -E 's#^[a-zA-Z][a-zA-Z0-9+.-]*://##; s#/.*$##; s#@##; s#:[0-9]+$##')"
+if [[ -z "${LOGIN_PATH}" ]]; then
+  LOGIN_PATH="/"
+fi
+if [[ "${LOGIN_PATH}" != /* ]]; then
+  LOGIN_PATH="/${LOGIN_PATH}"
+fi
+LOGIN_URL="${TARGET_BASE_URL}${LOGIN_PATH}"
 
 if [[ "${YES}" != "true" ]]; then
   info "Workspace to create: ${WORKSPACE}"
@@ -112,16 +121,20 @@ AUTH_ENV="${WORKSPACE}/config/auth.env"
 METADATA_JSON="${WORKSPACE}/config/metadata.json"
 
 sed \
-  -e "s|{{COMPANY}}|$(json_escape "${COMPANY}")|g" \
+  -e "s|{{COMPANY_NAME}}|$(json_escape "${COMPANY}")|g" \
   -e "s|{{COMPANY_SLUG}}|$(json_escape "${COMPANY_SLUG}")|g" \
-  -e "s|{{ENGAGEMENT}}|$(json_escape "${ENGAGEMENT}")|g" \
-  -e "s|{{TARGET}}|$(json_escape "${TARGET}")|g" \
+  -e "s|{{ENGAGEMENT_NAME}}|$(json_escape "${ENGAGEMENT}")|g" \
+  -e "s|{{TARGET_BASE_URL}}|$(json_escape "${TARGET_BASE_URL}")|g" \
+  -e "s|{{TARGET_HOST}}|$(json_escape "${TARGET_HOST}")|g" \
   -e "s|{{LOGIN_PATH}}|$(json_escape "${LOGIN_PATH}")|g" \
+  -e "s|{{LOGIN_URL}}|$(json_escape "${LOGIN_URL}")|g" \
   -e "s|{{ENVIRONMENT}}|$(json_escape "${ENVIRONMENT}")|g" \
   -e "s|{{PROFILE}}|$(json_escape "${PROFILE}")|g" \
   -e "s|{{AUTH_MODE}}|$(json_escape "${AUTH_MODE}")|g" \
   -e "s|{{AUTH_ENABLED}}|$(json_escape "${AUTH_ENABLED}")|g" \
   -e "s|{{TESTER}}|$(json_escape "${TESTER}")|g" \
+  -e "s|{{RUN_ID}}|$(json_escape "${RUN_ID}")|g" \
+  -e "s|{{WORKSPACE}}|$(json_escape "${WORKSPACE}")|g" \
   "${SCRIPT_DIR}/templates/target.env.tmpl" > "${TARGET_ENV}"
 
 sed \
@@ -138,9 +151,11 @@ cat > "${METADATA_JSON}" <<EOF
   "company": "$(json_escape "${COMPANY}")",
   "company_slug": "$(json_escape "${COMPANY_SLUG}")",
   "engagement": "$(json_escape "${ENGAGEMENT}")",
-  "target": "$(json_escape "${TARGET}")",
+  "target": "$(json_escape "${TARGET_BASE_URL}")",
+  "target_host": "$(json_escape "${TARGET_HOST}")",
   "target_slug": "$(json_escape "${TARGET_SLUG}")",
   "login_path": "$(json_escape "${LOGIN_PATH}")",
+  "login_url": "$(json_escape "${LOGIN_URL}")",
   "environment": "$(json_escape "${ENVIRONMENT}")",
   "profile": "$(json_escape "${PROFILE}")",
   "auth_mode": "$(json_escape "${AUTH_MODE}")",

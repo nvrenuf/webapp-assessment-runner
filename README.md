@@ -82,6 +82,7 @@ For an authenticated testing scaffold:
 ```
 
 Current phase scripts are safe runnable stubs. They create evidence directories and status files only; they do not scan targets yet.
+Preflight runs first and performs local Kali health checks plus one minimal login URL header request after scope confirmation. Use `--skip-preflight` only when you intentionally want to bypass those checks.
 
 ## Run One Phase
 
