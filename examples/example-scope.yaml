@@ -1,0 +1,13 @@
+target: "https://www.example.test"
+environment: "staging"
+login_path: "/login"
+allowed:
+  - "https://www.example.test"
+excluded:
+  - "destructive testing"
+  - "denial of service"
+  - "brute force"
+  - "credential stuffing"
+  - "race condition stress testing"
+notes:
+  - "Example only. Replace with engagement-specific approved scope."

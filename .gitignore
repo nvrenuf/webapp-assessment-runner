@@ -1,0 +1,16 @@
+assessments/**
+evidence/**
+reports/**
+logs/**
+*.tar.gz
+*.har
+*.cookie
+*.cookies
+*.session
+*.sqlite
+secrets/
+.env
+__pycache__/
+.pytest_cache/
+.pytest-tmp/
+*.pyc
