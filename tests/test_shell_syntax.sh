@@ -281,11 +281,21 @@ second_null_raw_count="$(find "${preflight_workspace}/evidence/phase-1-tls" -max
 [[ "${second_tls_raw_count}" -gt "${first_tls_raw_count}" ]]
 [[ "${second_null_raw_count}" -gt "${first_null_raw_count}" ]]
 grep -q '^STATUS=success$' "${preflight_workspace}/status/phase-1-tls.status"
+printf 'legacy\n' > "${preflight_workspace}/evidence/phase-1-tls/openssl-null-anon.txt"
+printf 'legacy\n' > "${preflight_workspace}/evidence/phase-1-tls/openssl-tls12.txt"
+printf 'legacy\n' > "${preflight_workspace}/evidence/phase-1-tls/openssl-tls13.txt"
+printf 'legacy\n' > "${preflight_workspace}/evidence/phase-1-tls/testssl-fast-console.txt"
+printf 'legacy\n' > "${preflight_workspace}/evidence/phase-1-tls/testssl-fast.log"
 PATH="${fakebin}:${PATH}" ./phases/01-tls.sh --workspace "${preflight_workspace}" --yes --clean >/dev/null
 clean_tls_raw_count="$(find "${preflight_workspace}/evidence/phase-1-tls" -maxdepth 1 -type f -name 'testssl-fast-[0-9]*T[0-9]*Z.log' | wc -l)"
 clean_null_raw_count="$(find "${preflight_workspace}/evidence/phase-1-tls" -maxdepth 1 -type f -name 'openssl-null-anon-[0-9]*T[0-9]*Z.txt' | wc -l)"
 [[ "${clean_tls_raw_count}" -eq 1 ]]
 [[ "${clean_null_raw_count}" -eq 1 ]]
+[[ ! -e "${preflight_workspace}/evidence/phase-1-tls/openssl-null-anon.txt" ]]
+[[ ! -e "${preflight_workspace}/evidence/phase-1-tls/openssl-tls12.txt" ]]
+[[ ! -e "${preflight_workspace}/evidence/phase-1-tls/openssl-tls13.txt" ]]
+[[ ! -e "${preflight_workspace}/evidence/phase-1-tls/testssl-fast-console.txt" ]]
+[[ ! -e "${preflight_workspace}/evidence/phase-1-tls/testssl-fast.log" ]]
 [[ -f "${preflight_workspace}/evidence/phase-1-tls/testssl-fast-latest.log" ]]
 [[ -f "${preflight_workspace}/evidence/phase-1-tls/testssl-fast-console-latest.txt" ]]
 [[ -f "${preflight_workspace}/evidence/phase-1-tls/openssl-tls12-latest.txt" ]]

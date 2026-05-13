@@ -84,7 +84,12 @@ if [[ "${CLEAN}" == "true" ]]; then
     -name 'openssl-tls12-latest.txt' -o \
     -name 'openssl-tls13-latest.txt' -o \
     -name 'openssl-null-anon-latest.txt' -o \
-    -name 'openssl-null-cipher-validation-latest.txt' \
+    -name 'openssl-null-cipher-validation-latest.txt' -o \
+    -name 'testssl-fast.log' -o \
+    -name 'testssl-fast-console.txt' -o \
+    -name 'openssl-tls12.txt' -o \
+    -name 'openssl-tls13.txt' -o \
+    -name 'openssl-null-anon.txt' \
   \) -delete
 fi
 
