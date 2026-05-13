@@ -159,6 +159,145 @@ redirect_lines() {
   fi
 }
 
+tracked_headers=(
+  server
+  location
+  refresh
+  strict-transport-security
+  content-security-policy
+  x-content-type-options
+  x-frame-options
+  x-xss-protection
+  referrer-policy
+  permissions-policy
+  set-cookie
+  cache-control
+  pragma
+  expires
+  access-control-allow-origin
+  access-control-allow-credentials
+  access-control-allow-methods
+  access-control-allow-headers
+  vary
+)
+
+recommended_headers=(
+  x-content-type-options
+  referrer-policy
+  permissions-policy
+)
+
+header_value() {
+  local file="$1"
+  local header_name="$2"
+  if [[ -f "${file}" ]]; then
+    awk -v wanted="${header_name}" '
+      BEGIN { wanted = tolower(wanted) }
+      index($0, ":") {
+        name = substr($0, 1, index($0, ":") - 1)
+        value = substr($0, index($0, ":") + 1)
+        gsub(/^[ \t]+|[ \t\r]+$/, "", value)
+        if (tolower(name) == wanted) {
+          if (found) {
+            found = found "; " value
+          } else {
+            found = value
+          }
+        }
+      }
+      END { if (found) print found }
+    ' "${file}"
+  fi
+}
+
+header_present() {
+  local file="$1"
+  local header_name="$2"
+  [[ -n "$(header_value "${file}" "${header_name}")" ]]
+}
+
+hsts_max_age() {
+  local value="$1"
+  printf '%s\n' "${value}" | grep -Eio 'max-age=[0-9]+' | head -n 1 | cut -d= -f2 || true
+}
+
+write_security_header_summaries() {
+  local txt_file="${OUT}/security-header-summary.txt"
+  local md_file="${OUT}/security-header-summary.md"
+  : > "${txt_file}"
+
+  for label in base login; do
+    local header_file="${OUT}/${label}-headers-latest.txt"
+    local header_name value
+    for header_name in "${tracked_headers[@]}"; do
+      value="$(header_value "${header_file}" "${header_name}")"
+      if [[ -z "${value}" ]]; then
+        value="MISSING"
+      fi
+      printf '%s\t%s\t%s\n' "${label}" "${header_name}" "${value}" >> "${txt_file}"
+    done
+  done
+
+  {
+    printf '# Security Header Summary\n\n'
+    for label in base login; do
+      local header_file="${OUT}/${label}-headers-latest.txt"
+      local hsts_value csp_value cache_value location_value refresh_value max_age missing_recommended present_headers header_name
+      hsts_value="$(header_value "${header_file}" "strict-transport-security")"
+      csp_value="$(header_value "${header_file}" "content-security-policy")"
+      cache_value="$(header_value "${header_file}" "cache-control")"
+      location_value="$(header_value "${header_file}" "location")"
+      refresh_value="$(header_value "${header_file}" "refresh")"
+      max_age="$(hsts_max_age "${hsts_value}")"
+      missing_recommended=()
+      present_headers=()
+
+      for header_name in "${tracked_headers[@]}"; do
+        if header_present "${header_file}" "${header_name}"; then
+          present_headers+=("${header_name}")
+        fi
+      done
+      for header_name in "${recommended_headers[@]}"; do
+        if ! header_present "${header_file}" "${header_name}"; then
+          missing_recommended+=("${header_name}")
+        fi
+      done
+
+      printf '## %s\n\n' "${label}"
+      printf -- '- HTTP status: %s\n' "$(status_line "${header_file}")"
+      printf -- '- Present security headers: %s\n' "${present_headers[*]:-none}"
+      printf -- '- Missing recommended headers: %s\n' "${missing_recommended[*]:-none}"
+      if [[ -n "${hsts_value}" ]]; then
+        printf -- '- HSTS: present'
+        if [[ -n "${max_age}" ]]; then
+          printf ' (max-age=%s)' "${max_age}"
+        fi
+        printf '\n'
+      else
+        printf -- '- HSTS: missing\n'
+      fi
+      printf -- '- Cache-Control: %s\n' "${cache_value:-MISSING}"
+      if [[ -n "${csp_value}" ]]; then
+        printf -- '- CSP: present\n'
+      else
+        printf -- '- CSP: missing\n'
+      fi
+      if [[ -n "${location_value}" ]]; then
+        printf -- '- Location header: present\n'
+      else
+        printf -- '- Location header: missing\n'
+      fi
+      if [[ -n "${refresh_value}" ]]; then
+        printf -- '- Refresh header: present\n\n'
+      else
+        printf -- '- Refresh header: missing\n\n'
+      fi
+    done
+  } > "${md_file}"
+}
+
+write_security_header_summaries
+
 cat > "${OUT}/headers-summary.md" <<EOF
 # HTTP Header Capture Summary
 
@@ -175,6 +314,8 @@ cat > "${OUT}/headers-summary.md" <<EOF
 - login headers: login-headers-latest.txt
 - login body: login-body-latest.html
 - login redirects: login-redirects-latest.txt
+- security header markdown summary: security-header-summary.md
+- security header text summary: security-header-summary.txt
 - console: ${CONSOLE_LOG##*/}
 
 ## HTTP Status

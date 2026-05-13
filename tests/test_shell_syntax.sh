@@ -243,7 +243,31 @@ if [[ "${redirects}" == "true" ]]; then
   printf 'HTTP/1.1 301 Moved Permanently\r\nLocation: %s/\r\n\r\nHTTP/2 200 OK\r\nServer: fake\r\n\r\n' "${url}"
   exit 0
 fi
-printf 'HTTP/2 200 OK\r\nServer: fake\r\nX-Test-URL: %s\r\n\r\n' "${url}" > "${headers}"
+if [[ "${url}" == *"/login" ]]; then
+  {
+    printf 'HTTP/2 200 OK\r\n'
+    printf 'server: fake-login\r\n'
+    printf 'CONTENT-SECURITY-POLICY: default-src '\''self'\''\r\n'
+    printf 'Strict-Transport-Security: max-age=31536000; includeSubDomains\r\n'
+    printf 'Cache-Control: no-store\r\n'
+    printf 'Set-Cookie: sid=fake; HttpOnly; Secure\r\n'
+    printf 'Access-Control-Allow-Origin: https://example.test\r\n'
+    printf 'Vary: Origin\r\n'
+    printf 'X-Test-URL: %s\r\n\r\n' "${url}"
+  } > "${headers}"
+else
+  {
+    printf 'HTTP/2 200 OK\r\n'
+    printf 'Server: fake-base\r\n'
+    printf 'X-Content-Type-Options: nosniff\r\n'
+    printf 'Referrer-Policy: strict-origin-when-cross-origin\r\n'
+    printf 'Permissions-Policy: geolocation=()\r\n'
+    printf 'Cache-Control: max-age=60\r\n'
+    printf 'Location: /next\r\n'
+    printf 'Refresh: 0; url=/next\r\n'
+    printf 'X-Test-URL: %s\r\n\r\n' "${url}"
+  } > "${headers}"
+fi
 printf '<html><body>%s</body></html>\n' "${url}" > "${body}"
 EOF
 chmod +x "${fakebin}/curl"
@@ -287,12 +311,21 @@ PATH="${fakebin}:${PATH}" ./phases/02-headers.sh --workspace "${preflight_worksp
 [[ -f "${preflight_workspace}/evidence/phase-2-headers/login-headers-latest.txt" ]]
 [[ -f "${preflight_workspace}/evidence/phase-2-headers/login-body-latest.html" ]]
 [[ -f "${preflight_workspace}/evidence/phase-2-headers/login-redirects-latest.txt" ]]
+[[ -f "${preflight_workspace}/evidence/phase-2-headers/security-header-summary.md" ]]
+[[ -f "${preflight_workspace}/evidence/phase-2-headers/security-header-summary.txt" ]]
 first_headers_raw_count="$(find "${preflight_workspace}/evidence/phase-2-headers" -maxdepth 1 -type f -name '*-headers-[0-9]*T[0-9]*Z.txt' | wc -l)"
 [[ "${first_headers_raw_count}" -eq 2 ]]
 grep -q '^STATUS=success$' "${preflight_workspace}/status/phase-2-headers.status"
 grep -q 'base: HTTP/2 200 OK' "${preflight_workspace}/evidence/phase-2-headers/headers-summary.md"
 grep -q 'login: HTTP/2 200 OK' "${preflight_workspace}/evidence/phase-2-headers/headers-summary.md"
 grep -q 'HTTP/1.1 301 Moved Permanently' "${preflight_workspace}/evidence/phase-2-headers/base-redirects-latest.txt"
+grep -q $'login\tcontent-security-policy\tdefault-src '\''self'\''' "${preflight_workspace}/evidence/phase-2-headers/security-header-summary.txt"
+grep -q $'login\tx-content-type-options\tMISSING' "${preflight_workspace}/evidence/phase-2-headers/security-header-summary.txt"
+grep -q $'login\tstrict-transport-security\tmax-age=31536000; includeSubDomains' "${preflight_workspace}/evidence/phase-2-headers/security-header-summary.txt"
+grep -q $'base\tpermissions-policy\tgeolocation=()' "${preflight_workspace}/evidence/phase-2-headers/security-header-summary.txt"
+grep -q 'HSTS: present (max-age=31536000)' "${preflight_workspace}/evidence/phase-2-headers/security-header-summary.md"
+grep -q 'Missing recommended headers: x-content-type-options referrer-policy permissions-policy' "${preflight_workspace}/evidence/phase-2-headers/security-header-summary.md"
+grep -q 'security header markdown summary: security-header-summary.md' "${preflight_workspace}/evidence/phase-2-headers/headers-summary.md"
 sleep 1
 PATH="${fakebin}:${PATH}" ./phases/02-headers.sh --workspace "${preflight_workspace}" --yes >/dev/null
 second_headers_raw_count="$(find "${preflight_workspace}/evidence/phase-2-headers" -maxdepth 1 -type f -name '*-headers-[0-9]*T[0-9]*Z.txt' | wc -l)"
