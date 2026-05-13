@@ -8,10 +8,11 @@ source "${REPO_ROOT}/lib/evidence.sh"
 source "${REPO_ROOT}/lib/status.sh"
 
 usage() {
-  printf 'Usage: %s --workspace PATH [--yes]\n' "$0"
+  printf 'Usage: %s --workspace PATH [--yes] [--clean]\n' "$0"
 }
 
 YES="false"
+CLEAN="false"
 WORKSPACE=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -22,6 +23,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --yes)
       YES="true"
+      shift
+      ;;
+    --clean)
+      CLEAN="true"
       shift
       ;;
     -h|--help)
@@ -64,6 +69,31 @@ fail_tls() {
 validate_workspace "${WORKSPACE}"
 OUT="$(phase_evidence_dir "${WORKSPACE}" "${PHASE_NAME}")"
 STATUS_READY="true"
+RUN_TS="$(date -u '+%Y%m%dT%H%M%SZ')"
+
+if [[ "${CLEAN}" == "true" ]]; then
+  find "${OUT}" -maxdepth 1 -type f \( \
+    -name 'testssl-fast-[0-9]*T[0-9]*Z.log' -o \
+    -name 'testssl-fast-console-[0-9]*T[0-9]*Z.txt' -o \
+    -name 'openssl-tls12-[0-9]*T[0-9]*Z.txt' -o \
+    -name 'openssl-tls13-[0-9]*T[0-9]*Z.txt' -o \
+    -name 'openssl-null-cipher-validation-[0-9]*T[0-9]*Z.txt' \
+  \) -delete
+fi
+
+TESTSSL_LOG="${OUT}/testssl-fast-${RUN_TS}.log"
+TESTSSL_CONSOLE="${OUT}/testssl-fast-console-${RUN_TS}.txt"
+OPENSSL_TLS12="${OUT}/openssl-tls12-${RUN_TS}.txt"
+OPENSSL_TLS13="${OUT}/openssl-tls13-${RUN_TS}.txt"
+OPENSSL_NULL="${OUT}/openssl-null-cipher-validation-${RUN_TS}.txt"
+
+copy_latest() {
+  local source_file="$1"
+  local latest_file="$2"
+  if [[ -f "${source_file}" ]]; then
+    cp "${source_file}" "${latest_file}"
+  fi
+}
 
 load_env_file "${WORKSPACE}/config/target.env"
 require_env_vars TARGET_BASE_URL TARGET_HOST PROFILE
@@ -152,9 +182,11 @@ extract_cert_metadata() {
 
 if [[ -n "${TESTSSL_BIN}" ]]; then
   set +e
-  "${TESTSSL_BIN}" --fast --warnings batch --logfile "${OUT}/testssl-fast.log" "${TARGET_BASE_URL}" 2>&1 | tee "${OUT}/testssl-fast-console.txt"
+  "${TESTSSL_BIN}" --fast --warnings batch --logfile "${TESTSSL_LOG}" "${TARGET_BASE_URL}" 2>&1 | tee "${TESTSSL_CONSOLE}"
   testssl_code=${PIPESTATUS[0]}
   set -e
+  copy_latest "${TESTSSL_LOG}" "${OUT}/testssl-fast-latest.log"
+  copy_latest "${TESTSSL_CONSOLE}" "${OUT}/testssl-fast-console-latest.txt"
   TESTSSL_RAN="true"
   TESTSSL_STATUS="completed with exit code ${testssl_code}"
   if [[ "${testssl_code}" -ne 0 ]]; then
@@ -163,32 +195,35 @@ if [[ -n "${TESTSSL_BIN}" ]]; then
 else
   TESTSSL_STATUS="missing"
   WARNINGS+=("testssl not found; continuing with OpenSSL checks")
-  printf 'testssl not found; OpenSSL checks only.\n' > "${OUT}/testssl-fast-console.txt"
+  printf 'testssl not found; OpenSSL checks only.\n' > "${TESTSSL_CONSOLE}"
+  copy_latest "${TESTSSL_CONSOLE}" "${OUT}/testssl-fast-console-latest.txt"
 fi
 
 set +e
-"${OPENSSL_BIN}" s_client -connect "${TARGET_HOST}:443" -servername "${TARGET_HOST}" -tls1_2 </dev/null > "${OUT}/openssl-tls12.txt" 2>&1
+"${OPENSSL_BIN}" s_client -connect "${TARGET_HOST}:443" -servername "${TARGET_HOST}" -tls1_2 </dev/null > "${OPENSSL_TLS12}" 2>&1
 tls12_code=$?
-"${OPENSSL_BIN}" s_client -connect "${TARGET_HOST}:443" -servername "${TARGET_HOST}" -tls1_3 </dev/null > "${OUT}/openssl-tls13.txt" 2>&1
+"${OPENSSL_BIN}" s_client -connect "${TARGET_HOST}:443" -servername "${TARGET_HOST}" -tls1_3 </dev/null > "${OPENSSL_TLS13}" 2>&1
 tls13_code=$?
 set -e
+copy_latest "${OPENSSL_TLS12}" "${OUT}/openssl-tls12-latest.txt"
+copy_latest "${OPENSSL_TLS13}" "${OUT}/openssl-tls13-latest.txt"
 
 if [[ "${tls12_code}" -eq 0 ]]; then
   TLS12_RESULT="completed"
 else
   TLS12_RESULT="failed with exit code ${tls12_code}"
-  WARNINGS+=("OpenSSL TLS 1.2 validation failed; review openssl-tls12.txt")
+  WARNINGS+=("OpenSSL TLS 1.2 validation failed; review ${OPENSSL_TLS12##*/}")
 fi
 if [[ "${tls13_code}" -eq 0 ]]; then
   TLS13_RESULT="completed"
 else
   TLS13_RESULT="failed with exit code ${tls13_code}"
-  WARNINGS+=("OpenSSL TLS 1.3 validation failed or TLS 1.3 is unsupported; informational")
+  WARNINGS+=("OpenSSL TLS 1.3 validation failed or TLS 1.3 is unsupported; informational; review ${OPENSSL_TLS13##*/}")
 fi
 
-TLS12_CIPHER="$(openssl_cipher "${OUT}/openssl-tls12.txt" || true)"
-TLS13_CIPHER="$(openssl_cipher "${OUT}/openssl-tls13.txt" || true)"
-extract_cert_metadata "${OUT}/openssl-tls12.txt"
+TLS12_CIPHER="$(openssl_cipher "${OPENSSL_TLS12}" || true)"
+TLS13_CIPHER="$(openssl_cipher "${OPENSSL_TLS13}" || true)"
+extract_cert_metadata "${OPENSSL_TLS12}"
 
 if [[ "${TLS12_CIPHER}" =~ (GCM|CHACHA20|POLY1305) ]]; then
   add_finding "TLS 1.2 negotiated AEAD cipher" "informational" "observed" "TLS 1.2 negotiated ${TLS12_CIPHER}."
@@ -200,26 +235,28 @@ if [[ "${VERIFY_RETURN_CODE}" != "" && ! "${VERIFY_RETURN_CODE}" =~ ^0[[:space:]
   add_finding "Certificate verification issue" "medium" "unvalidated" "OpenSSL reported verify return code: ${VERIFY_RETURN_CODE}."
 fi
 
-TESTSSL_FILES=("${OUT}/testssl-fast-console.txt")
-if [[ -f "${OUT}/testssl-fast.log" ]]; then
-  TESTSSL_FILES+=("${OUT}/testssl-fast.log")
+TESTSSL_FILES=("${TESTSSL_CONSOLE}")
+if [[ -f "${TESTSSL_LOG}" ]]; then
+  TESTSSL_FILES+=("${TESTSSL_LOG}")
 fi
 
 if grep -Eiq 'NULL ciphers|Anonymous NULL|aNULL|eNULL' "${TESTSSL_FILES[@]}"; then
   set +e
-  "${OPENSSL_BIN}" s_client -connect "${TARGET_HOST}:443" -servername "${TARGET_HOST}" -cipher 'NULL:eNULL:aNULL' -tls1_2 </dev/null > "${OUT}/openssl-null-anon.txt" 2>&1
+  "${OPENSSL_BIN}" s_client -connect "${TARGET_HOST}:443" -servername "${TARGET_HOST}" -cipher 'NULL:eNULL:aNULL' -tls1_2 </dev/null > "${OPENSSL_NULL}" 2>&1
   null_code=$?
   set -e
+  copy_latest "${OPENSSL_NULL}" "${OUT}/openssl-null-cipher-validation-latest.txt"
   NULL_VALIDATION_STATUS="ran with exit code ${null_code}"
-  null_cipher="$(openssl_cipher "${OUT}/openssl-null-anon.txt" || true)"
-  if [[ "${null_cipher}" =~ (NULL|aNULL|eNULL) ]] && ! grep -Eiq 'Cipher is \(NONE\)|no peer certificate|handshake failure|no cipher match|alert handshake failure' "${OUT}/openssl-null-anon.txt"; then
+  null_cipher="$(openssl_cipher "${OPENSSL_NULL}" || true)"
+  if [[ "${null_cipher}" =~ (NULL|aNULL|eNULL) ]] && ! grep -Eiq 'Cipher is \(NONE\)|no peer certificate|handshake failure|no cipher match|alert handshake failure' "${OPENSSL_NULL}"; then
     NULL_CIPHER_CONFIRMED="true"
     add_finding "Confirmed NULL or anonymous cipher support" "high" "confirmed" "Restricted OpenSSL validation negotiated ${null_cipher}."
   else
     add_finding "testssl NULL or anonymous cipher observation not reproduced" "informational" "not confirmed" "Restricted OpenSSL validation did not negotiate a NULL/eNULL/aNULL cipher."
   fi
 else
-  printf 'No NULL/eNULL/aNULL indicators found in testssl output.\n' > "${OUT}/openssl-null-anon.txt"
+  printf 'No NULL/eNULL/aNULL indicators found in testssl output.\n' > "${OPENSSL_NULL}"
+  copy_latest "${OPENSSL_NULL}" "${OUT}/openssl-null-cipher-validation-latest.txt"
 fi
 
 if legacy_tls_offered "${TESTSSL_FILES[@]}"; then
