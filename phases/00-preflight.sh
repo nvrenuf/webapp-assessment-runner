@@ -37,6 +37,7 @@ done
 
 [[ -n "${WORKSPACE}" ]] || die "--workspace is required"
 WORKSPACE="$(absolute_path "${WORKSPACE}")"
+STATUS_WORKSPACE="${WORKSPACE}"
 
 PHASE_NAME="phase-0-preflight"
 STARTED_UTC="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
@@ -52,7 +53,7 @@ finish_status() {
     if [[ "${exit_code}" -eq 0 && "${PREFLIGHT_STATUS}" != "skipped" ]]; then
       PREFLIGHT_STATUS="success"
     fi
-    write_phase_status_file "${WORKSPACE}" "${PHASE_NAME}" "${PREFLIGHT_STATUS}" "${STARTED_UTC}" "${finished_utc}" "${exit_code}" "${PREFLIGHT_MESSAGE}"
+    write_phase_status_file "${STATUS_WORKSPACE}" "${PHASE_NAME}" "${PREFLIGHT_STATUS}" "${STARTED_UTC}" "${finished_utc}" "${exit_code}" "${PREFLIGHT_MESSAGE}"
   fi
 }
 trap 'exit_code=$?; finish_status "${exit_code}"' EXIT
@@ -75,7 +76,10 @@ OS_SUMMARY="unknown"
 TARGET_ENV="${WORKSPACE}/config/target.env"
 CLI_WORKSPACE="${WORKSPACE}"
 unset COMPANY_NAME COMPANY_SLUG ENGAGEMENT_NAME TARGET_BASE_URL TARGET_HOST LOGIN_PATH LOGIN_URL ENVIRONMENT PROFILE AUTH_MODE AUTH_ENABLED TESTER RUN_ID WORKSPACE
-load_env_file "${TARGET_ENV}"
+if ! load_env_file "${TARGET_ENV}"; then
+  WORKSPACE="${CLI_WORKSPACE}"
+  fail_preflight "could not load target config: ${TARGET_ENV}"
+fi
 CONFIG_WORKSPACE="${WORKSPACE:-}"
 WORKSPACE="${CLI_WORKSPACE}"
 
@@ -93,14 +97,22 @@ required_vars=(
   AUTH_ENABLED
   TESTER
   RUN_ID
-  WORKSPACE
 )
-CONFIG_WORKSPACE_FOR_VALIDATION="${WORKSPACE}"
-WORKSPACE="${CONFIG_WORKSPACE}"
-require_env_vars "${required_vars[@]}"
-WORKSPACE="${CONFIG_WORKSPACE_FOR_VALIDATION}"
 
-if [[ "${CONFIG_WORKSPACE}" != "${CLI_WORKSPACE}" ]]; then
+missing_config=()
+for var_name in "${required_vars[@]}"; do
+  if [[ -z "${!var_name+x}" || -z "${!var_name}" ]]; then
+    missing_config+=("${var_name}")
+  fi
+done
+if [[ -z "${CONFIG_WORKSPACE}" ]]; then
+  missing_config+=("WORKSPACE")
+fi
+if [[ "${#missing_config[@]}" -gt 0 ]]; then
+  fail_preflight "missing required target config values: ${missing_config[*]}"
+fi
+
+if [[ "$(absolute_path "${CONFIG_WORKSPACE}")" != "${CLI_WORKSPACE}" ]]; then
   fail_preflight "target config WORKSPACE does not match selected workspace"
 fi
 

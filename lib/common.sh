@@ -68,6 +68,16 @@ shell_quote() {
   printf "'%s'" "${value//\'/\'\\\'\'}"
 }
 
+env_double_quote_escape() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  value="${value//\$/\\\$}"
+  value="${value//\`/\\\`}"
+  value="${value//$'\n'/\\n}"
+  printf '%s' "${value}"
+}
+
 validate_workspace() {
   local workspace="$1"
   [[ -d "${workspace}" ]] || die "workspace does not exist: ${workspace}"

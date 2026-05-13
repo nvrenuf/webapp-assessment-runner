@@ -7,7 +7,7 @@ cd "${ROOT}"
 bash -n install.sh init-assessment.sh assess.sh status.sh report.sh phases/*.sh lib/*.sh
 
 tmp_root="$(mktemp -d)"
-trap 'rm -rf "${tmp_root}"' EXIT
+trap 'rm -rf "${tmp_root}" assessments/example-co' EXIT
 
 workspace="$(
   ./init-assessment.sh \
@@ -174,6 +174,74 @@ grep -q '^JQ_BIN=' "${preflight_workspace}/config/tool-paths.env"
 grep -q '^PYTHON_BIN=' "${preflight_workspace}/config/tool-paths.env"
 grep -q '^TESTSSL_BIN=' "${preflight_workspace}/config/tool-paths.env"
 grep -q '^ZAP_BIN=' "${preflight_workspace}/config/tool-paths.env"
+
+regression_workspace="$(
+  ./init-assessment.sh \
+    --company "Example Co" \
+    --company-slug example-co \
+    --engagement "Example Staging" \
+    --target https://example.com \
+    --login-path /login \
+    --environment staging \
+    --profile safe \
+    --auth no \
+    --tester "Tester" \
+    --yes
+)"
+target_env="${regression_workspace}/config/target.env"
+for required_var in \
+  COMPANY_NAME \
+  COMPANY_SLUG \
+  ENGAGEMENT_NAME \
+  TARGET_BASE_URL \
+  TARGET_HOST \
+  LOGIN_PATH \
+  LOGIN_URL \
+  ENVIRONMENT \
+  PROFILE \
+  AUTH_MODE \
+  AUTH_ENABLED \
+  TESTER \
+  RUN_ID \
+  WORKSPACE; do
+  grep -q "^${required_var}=\"" "${target_env}"
+done
+grep -q '^COMPANY_NAME="Example Co"$' "${target_env}"
+grep -q '^COMPANY_SLUG="example-co"$' "${target_env}"
+grep -q '^ENGAGEMENT_NAME="Example Staging"$' "${target_env}"
+grep -q '^TARGET_BASE_URL="https://example.com"$' "${target_env}"
+grep -q '^TARGET_HOST="example.com"$' "${target_env}"
+grep -q '^LOGIN_PATH="/login"$' "${target_env}"
+grep -q '^LOGIN_URL="https://example.com/login"$' "${target_env}"
+grep -q '^AUTH_MODE="none"$' "${target_env}"
+grep -q '^AUTH_ENABLED="false"$' "${target_env}"
+grep -q '"company_name": "Example Co"' "${regression_workspace}/config/metadata.json"
+grep -q '"engagement_name": "Example Staging"' "${regression_workspace}/config/metadata.json"
+grep -q '"target_base_url": "https://example.com"' "${regression_workspace}/config/metadata.json"
+regression_output="$(PATH="${fakebin}:${PATH}" ./phases/00-preflight.sh --workspace "${regression_workspace}" --yes 2>&1)"
+grep -q 'phase-0-preflight completed' <<< "${regression_output}"
+[[ -f "${regression_workspace}/status/phase-0-preflight.status" ]]
+! grep -q '/status' <<< "${regression_output}"
+
+legacy_workspace="${tmp_root}/legacy-workspace"
+mkdir -p "${legacy_workspace}/config" "${legacy_workspace}/status"
+cat > "${legacy_workspace}/config/target.env" <<'EOF'
+COMPANY="Example Co"
+COMPANY_SLUG="example-co"
+ENGAGEMENT="Example Staging"
+TARGET="https://example.com"
+LOGIN_PATH="/login"
+ENVIRONMENT="staging"
+PROFILE="safe"
+AUTH_MODE="none"
+AUTH_ENABLED="false"
+TESTER="Tester"
+EOF
+legacy_output="$(PATH="${fakebin}:${PATH}" ./phases/00-preflight.sh --workspace "${legacy_workspace}" --yes 2>&1 || true)"
+grep -q 'error: missing required target config values:' <<< "${legacy_output}"
+! grep -q 'mkdir: cannot create directory' <<< "${legacy_output}"
+! grep -q '/status' <<< "${legacy_output}"
+grep -q '^STATUS=failure$' "${legacy_workspace}/status/phase-0-preflight.status"
 
 failure_workspace="$(
   ./init-assessment.sh \
