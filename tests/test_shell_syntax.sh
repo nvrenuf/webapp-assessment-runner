@@ -90,6 +90,7 @@ grep -q 'error: workspace does not exist:' <<< "${missing_output}"
 
 fakebin="${tmp_root}/fakebin"
 mkdir -p "${fakebin}"
+real_python_bin="$(command -v python3 || command -v python)"
 
 for tool in curl openssl nmap nikto nuclei jq python3 testssl zaproxy; do
   cat > "${fakebin}/${tool}" <<'EOF'
@@ -98,6 +99,16 @@ printf '%s fake version\n' "$(basename "$0")"
 EOF
   chmod +x "${fakebin}/${tool}"
 done
+
+cat > "${fakebin}/python3" <<EOF
+#!/usr/bin/env bash
+if [[ "\${1:-}" == "--version" || "\$#" -eq 0 ]]; then
+  printf 'python3 fake version\n'
+  exit 0
+fi
+exec "${real_python_bin}" "\$@"
+EOF
+chmod +x "${fakebin}/python3"
 
 cat > "${fakebin}/openssl" <<'EOF'
 #!/usr/bin/env bash
@@ -336,6 +347,7 @@ PATH="${fakebin}:${PATH}" ./phases/02-headers.sh --workspace "${preflight_worksp
 [[ -f "${preflight_workspace}/evidence/phase-2-headers/csp-analysis.txt" ]]
 [[ -f "${preflight_workspace}/evidence/phase-2-headers/cors-analysis.md" ]]
 [[ -f "${preflight_workspace}/evidence/phase-2-headers/cors-analysis.txt" ]]
+[[ -f "${preflight_workspace}/evidence/phase-2-headers/headers-findings.json" ]]
 first_headers_raw_count="$(find "${preflight_workspace}/evidence/phase-2-headers" -maxdepth 1 -type f \( -name 'base-headers-[0-9]*T[0-9]*Z.txt' -o -name 'login-headers-[0-9]*T[0-9]*Z.txt' \) | wc -l)"
 [[ "${first_headers_raw_count}" -eq 2 ]]
 first_cors_raw_count="$(find "${preflight_workspace}/evidence/phase-2-headers" -maxdepth 1 -type f -name '*-cors-headers-[0-9]*T[0-9]*Z.txt' | wc -l)"
@@ -364,6 +376,31 @@ grep -q 'CSP markdown analysis: csp-analysis.md' "${preflight_workspace}/evidenc
 grep -q $'base\tarbitrary-origin-reflection\tnot observed\tACAO=MISSING' "${preflight_workspace}/evidence/phase-2-headers/cors-analysis.txt"
 grep -q $'login\trisky-cors-combination\tnot observed\tACAO=MISSING; ACAC=MISSING' "${preflight_workspace}/evidence/phase-2-headers/cors-analysis.txt"
 grep -q 'CORS markdown analysis: cors-analysis.md' "${preflight_workspace}/evidence/phase-2-headers/headers-summary.md"
+grep -q 'structured findings: headers-findings.json' "${preflight_workspace}/evidence/phase-2-headers/headers-summary.md"
+FINDINGS_FILE="${preflight_workspace}/evidence/phase-2-headers/headers-findings.json" python3 - <<'PY'
+import json
+import os
+
+with open(os.environ["FINDINGS_FILE"], encoding="utf-8") as handle:
+    findings = json.load(handle)
+
+def has(title, severity=None, status=None):
+    for finding in findings:
+        if finding["title"] != title:
+            continue
+        if severity is not None and finding["severity"] != severity:
+            continue
+        if status is not None and finding["status"] != status:
+            continue
+        return True
+    return False
+
+assert has("Missing X-Content-Type-Options on login", "low", "confirmed")
+assert has("CSP permits unsafe JavaScript evaluation on login", "medium", "confirmed")
+assert has("CORS arbitrary origin reflection not observed on login", "informational", "not_observed")
+assert has("Base URL returns redirect response", "informational", "observed")
+assert not any(f["title"] == "Missing CSP on base" for f in findings)
+PY
 sleep 1
 CORS_FIXTURE=reflect PATH="${fakebin}:${PATH}" ./phases/02-headers.sh --workspace "${preflight_workspace}" --yes >/dev/null
 second_headers_raw_count="$(find "${preflight_workspace}/evidence/phase-2-headers" -maxdepth 1 -type f \( -name 'base-headers-[0-9]*T[0-9]*Z.txt' -o -name 'login-headers-[0-9]*T[0-9]*Z.txt' \) | wc -l)"
@@ -371,6 +408,19 @@ second_cors_raw_count="$(find "${preflight_workspace}/evidence/phase-2-headers" 
 [[ "${second_headers_raw_count}" -gt "${first_headers_raw_count}" ]]
 [[ "${second_cors_raw_count}" -gt "${first_cors_raw_count}" ]]
 grep -q $'base\tarbitrary-origin-reflection\tobserved\tACAO=https://evil.example' "${preflight_workspace}/evidence/phase-2-headers/cors-analysis.txt"
+FINDINGS_FILE="${preflight_workspace}/evidence/phase-2-headers/headers-findings.json" python3 - <<'PY'
+import json
+import os
+
+with open(os.environ["FINDINGS_FILE"], encoding="utf-8") as handle:
+    findings = json.load(handle)
+assert any(
+    finding["title"] == "CORS reflects arbitrary Origin on login"
+    and finding["severity"] == "medium"
+    and finding["status"] == "confirmed"
+    for finding in findings
+)
+PY
 CORS_FIXTURE=wildcard-credentials PATH="${fakebin}:${PATH}" ./phases/02-headers.sh --workspace "${preflight_workspace}" --yes --clean >/dev/null
 clean_headers_raw_count="$(find "${preflight_workspace}/evidence/phase-2-headers" -maxdepth 1 -type f \( -name 'base-headers-[0-9]*T[0-9]*Z.txt' -o -name 'login-headers-[0-9]*T[0-9]*Z.txt' \) | wc -l)"
 clean_cors_raw_count="$(find "${preflight_workspace}/evidence/phase-2-headers" -maxdepth 1 -type f -name '*-cors-headers-[0-9]*T[0-9]*Z.txt' | wc -l)"
@@ -384,6 +434,19 @@ clean_cors_raw_count="$(find "${preflight_workspace}/evidence/phase-2-headers" -
 grep -Fq $'base\twildcard-origin\tobserved\tACAO=*' "${preflight_workspace}/evidence/phase-2-headers/cors-analysis.txt"
 grep -q $'base\tcredentials-allowed\tobserved\tACAC=true' "${preflight_workspace}/evidence/phase-2-headers/cors-analysis.txt"
 grep -Fq $'base\trisky-cors-combination\tobserved\tACAO=*; ACAC=true' "${preflight_workspace}/evidence/phase-2-headers/cors-analysis.txt"
+FINDINGS_FILE="${preflight_workspace}/evidence/phase-2-headers/headers-findings.json" python3 - <<'PY'
+import json
+import os
+
+with open(os.environ["FINDINGS_FILE"], encoding="utf-8") as handle:
+    findings = json.load(handle)
+assert any(
+    finding["title"] == "CORS permits arbitrary origin with credentials on login"
+    and finding["severity"] == "high"
+    and finding["status"] == "confirmed"
+    for finding in findings
+)
+PY
 
 PATH="${fakebin}:${PATH}" ./phases/01-tls.sh --workspace "${preflight_workspace}" --yes >/dev/null
 [[ -f "${preflight_workspace}/status/phase-1-tls.status" ]]

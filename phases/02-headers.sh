@@ -527,6 +527,277 @@ write_cors_analysis() {
 
 write_cors_analysis
 
+write_headers_findings() {
+  local findings_file="${OUT}/headers-findings.json"
+  local python_bin="${PYTHON_BIN:-python3}"
+  "${python_bin}" - "${OUT}" "${TARGET_BASE_URL}" "${LOGIN_URL}" > "${findings_file}" <<'PY'
+import json
+import re
+import sys
+from pathlib import Path
+
+out = Path(sys.argv[1])
+target_base_url = sys.argv[2]
+login_url = sys.argv[3]
+
+findings = []
+
+
+def read_text(path):
+    try:
+        return path.read_text(encoding="utf-8", errors="replace")
+    except FileNotFoundError:
+        return ""
+
+
+def header_values(path):
+    values = {}
+    for line in read_text(path).splitlines():
+        if ":" not in line:
+            continue
+        name, value = line.split(":", 1)
+        name = name.strip().lower()
+        value = value.strip()
+        if not name:
+            continue
+        values.setdefault(name, []).append(value)
+    return {key: "; ".join(parts) for key, parts in values.items()}
+
+
+def first_status(path):
+    for line in read_text(path).splitlines():
+        if line.startswith("HTTP/"):
+            return line.strip()
+    return ""
+
+
+def status_code(status_line):
+    match = re.search(r"\s([0-9]{3})\s", f"{status_line} ")
+    return int(match.group(1)) if match else None
+
+
+def csp_checks(label):
+    checks = {}
+    for line in read_text(out / "csp-analysis.txt").splitlines():
+        parts = line.split("\t", 3)
+        if len(parts) == 4 and parts[0] == label:
+            checks[parts[1]] = {"status": parts[2], "details": parts[3]}
+    return checks
+
+
+def next_id():
+    return f"HEADERS-{len(findings) + 1:03d}"
+
+
+def add(title, severity, status, category, url, evidence, description, recommendation):
+    findings.append(
+        {
+            "id": next_id(),
+            "title": title,
+            "severity": severity,
+            "status": status,
+            "source": "phase-2-headers",
+            "category": category,
+            "url": url,
+            "evidence": evidence,
+            "description": description,
+            "recommendation": recommendation,
+        }
+    )
+
+
+login_headers = header_values(out / "login-headers-latest.txt")
+base_headers = header_values(out / "base-headers-latest.txt")
+login_cors_headers = header_values(out / "login-cors-headers-latest.txt")
+base_redirect_status = first_status(out / "base-redirects-latest.txt")
+base_redirect_code = status_code(base_redirect_status)
+login_csp = csp_checks("login")
+
+csp_finding_map = {
+    "script-src-unsafe-inline": (
+        "CSP permits unsafe inline JavaScript on login",
+        "medium",
+        "confirmed",
+        "script-src includes 'unsafe-inline'",
+        "Inline JavaScript weakens Content-Security-Policy protections and can increase XSS impact.",
+        "Move inline scripts to external files with nonces or hashes and remove 'unsafe-inline' from script-src.",
+    ),
+    "script-src-unsafe-eval": (
+        "CSP permits unsafe JavaScript evaluation on login",
+        "medium",
+        "confirmed",
+        "script-src includes 'unsafe-eval'",
+        "Use of unsafe-eval allows dynamic JavaScript execution patterns that weaken CSP protection.",
+        "Remove 'unsafe-eval' from script-src and refactor code that depends on eval-like behavior.",
+    ),
+    "style-src-unsafe-inline": (
+        "CSP permits unsafe inline styles on login",
+        "low",
+        "confirmed",
+        "style-src includes 'unsafe-inline'",
+        "Inline style allowances weaken CSP style restrictions.",
+        "Replace inline styles with stylesheet rules or use CSP hashes/nonces where required.",
+    ),
+    "missing-form-action": (
+        "CSP is missing form-action on login",
+        "medium",
+        "confirmed",
+        "form-action directive is not defined",
+        "Without form-action, CSP does not restrict where login forms may submit data.",
+        "Add `form-action 'self';`.",
+    ),
+    "missing-base-uri": (
+        "CSP is missing base-uri on login",
+        "low",
+        "confirmed",
+        "base-uri directive is not defined",
+        "Without base-uri, injected base tags may alter relative URL resolution.",
+        "Add `base-uri 'self';`.",
+    ),
+    "missing-object-src": (
+        "CSP is missing object-src on login",
+        "low",
+        "confirmed",
+        "object-src directive is not defined",
+        "Without object-src, legacy plugin/object embedding is not explicitly restricted.",
+        "Add `object-src 'none';`.",
+    ),
+}
+
+for check, (title, severity, status, expected_detail, description, recommendation) in csp_finding_map.items():
+    item = login_csp.get(check)
+    if item and item["details"] == expected_detail:
+        add(title, severity, status, "csp", login_url, item["details"], description, recommendation)
+
+for check, title, evidence_prefix, description, recommendation in (
+    (
+        "broad-wildcard-sources",
+        "CSP contains broad wildcard sources on login",
+        "Broad wildcard source observed",
+        "Wildcard CSP sources can allow content from overly broad third-party locations.",
+        "Replace wildcard sources with the smallest explicit source allowlist that supports the application.",
+    ),
+    (
+        "broad-frame-ancestors",
+        "CSP frame-ancestors may be overly broad on login",
+        "Broad frame-ancestors observed",
+        "Broad frame-ancestors values can weaken clickjacking protections.",
+        "Restrict frame-ancestors to 'self' or a small explicit allowlist.",
+    ),
+):
+    item = login_csp.get(check)
+    if item and item["status"] == "needs review":
+        add(title, "low", "needs_review", "csp", login_url, f"{evidence_prefix}: {item['details']}", description, recommendation)
+
+required_headers = {
+    "x-content-type-options": (
+        "Missing X-Content-Type-Options on login",
+        "`X-Content-Type-Options: nosniff`",
+        "The login response does not explicitly prevent MIME type sniffing.",
+    ),
+    "referrer-policy": (
+        "Missing Referrer-Policy on login",
+        "`Referrer-Policy: strict-origin-when-cross-origin`",
+        "The login response does not define how much referrer information browsers may send.",
+    ),
+    "permissions-policy": (
+        "Missing Permissions-Policy on login",
+        "Restrictive baseline such as `Permissions-Policy: geolocation=(), microphone=(), camera=()`",
+        "The login response does not restrict browser features through Permissions-Policy.",
+    ),
+}
+
+for header, (title, recommendation, description) in required_headers.items():
+    if not login_headers.get(header):
+        add(title, "low", "confirmed", "headers", login_url, f"{header}: MISSING", description, recommendation)
+
+hsts_value = login_headers.get("strict-transport-security", "")
+max_age_match = re.search(r"max-age\s*=\s*([0-9]+)", hsts_value, flags=re.IGNORECASE)
+if max_age_match and int(max_age_match.group(1)) < 31536000:
+    add(
+        "HSTS max-age is below one year on login",
+        "low",
+        "confirmed",
+        "headers",
+        login_url,
+        f"Strict-Transport-Security: {hsts_value}",
+        "The login response enables HSTS with a max-age shorter than the common one-year baseline.",
+        "Set Strict-Transport-Security max-age to at least 31536000 after validating HTTPS coverage.",
+    )
+
+cache_value = login_headers.get("cache-control", "")
+if "no-store" not in cache_value.lower():
+    add(
+        "Login response lacks no-store cache protection",
+        "medium",
+        "confirmed",
+        "cache",
+        login_url,
+        f"Cache-Control: {cache_value or 'MISSING'}",
+        "Login responses can contain sensitive information and should not be stored by browsers or intermediaries.",
+        "Set `Cache-Control: no-store` on login and other sensitive authenticated responses.",
+    )
+
+acao = login_cors_headers.get("access-control-allow-origin", "")
+acac = login_cors_headers.get("access-control-allow-credentials", "")
+origin_reflected = acao == "https://evil.example"
+wildcard_origin = acao == "*"
+credentials_allowed = acac.lower() == "true"
+
+if origin_reflected:
+    add(
+        "CORS reflects arbitrary Origin on login",
+        "medium",
+        "confirmed",
+        "cors",
+        login_url,
+        f"Access-Control-Allow-Origin: {acao}",
+        "The login response reflects an arbitrary Origin value in Access-Control-Allow-Origin.",
+        "Return Access-Control-Allow-Origin only for trusted origins from a strict allowlist.",
+    )
+else:
+    add(
+        "CORS arbitrary origin reflection not observed on login",
+        "informational",
+        "not_observed",
+        "cors",
+        login_url,
+        f"Access-Control-Allow-Origin: {acao or 'MISSING'}",
+        "The Phase 2 arbitrary-origin probe did not observe reflection of https://evil.example.",
+        "Continue to validate CORS behavior for authenticated API endpoints when authenticated testing is enabled.",
+    )
+
+if (origin_reflected or wildcard_origin) and credentials_allowed:
+    add(
+        "CORS permits arbitrary origin with credentials on login",
+        "high",
+        "confirmed",
+        "cors",
+        login_url,
+        f"Access-Control-Allow-Origin: {acao}; Access-Control-Allow-Credentials: {acac}",
+        "The login response combines broad origin allowance with credentialed CORS behavior.",
+        "Do not combine credentialed CORS with reflected or wildcard origins; use a strict trusted-origin allowlist.",
+    )
+
+if base_redirect_code in {301, 302, 303, 307, 308}:
+    location = base_headers.get("location", "")
+    add(
+        "Base URL returns redirect response",
+        "informational",
+        "observed",
+        "redirect",
+        target_base_url,
+        f"{base_redirect_status}; Location: {location or 'see redirect evidence'}",
+        "The base URL returned a redirect during header capture.",
+        "Review redirect targets for expected routing and HTTPS consistency.",
+    )
+
+print(json.dumps(findings, indent=2))
+PY
+}
+
+write_headers_findings
+
 cat > "${OUT}/headers-summary.md" <<EOF
 # HTTP Header Capture Summary
 
@@ -551,6 +822,7 @@ cat > "${OUT}/headers-summary.md" <<EOF
 - CSP text analysis: csp-analysis.txt
 - CORS markdown analysis: cors-analysis.md
 - CORS text analysis: cors-analysis.txt
+- structured findings: headers-findings.json
 - console: ${CONSOLE_LOG##*/}
 
 ## HTTP Status
