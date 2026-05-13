@@ -18,6 +18,8 @@ Options:
   --environment NAME
   --profile safe|balanced|deep|maintenance
   --auth none|placeholder
+      Aliases for none: no, false, off, unauthenticated
+      Aliases for placeholder: yes, true, on, authenticated, auth
   --tester NAME
   --output-root PATH
   --yes
@@ -33,6 +35,8 @@ LOGIN_PATH=""
 ENVIRONMENT="unspecified"
 PROFILE="safe"
 AUTH="none"
+AUTH_MODE="none"
+AUTH_ENABLED="false"
 TESTER=""
 OUTPUT_ROOT="assessments"
 YES="false"
@@ -64,10 +68,25 @@ case "${PROFILE}" in
   *) die "--profile must be one of: safe, balanced, deep, maintenance" ;;
 esac
 
-case "${AUTH}" in
-  none|placeholder) ;;
-  *) die "--auth must be one of: none, placeholder" ;;
-esac
+normalize_auth() {
+  local value
+  value="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+  case "${value}" in
+    none|no|false|off|unauthenticated)
+      AUTH_MODE="none"
+      AUTH_ENABLED="false"
+      ;;
+    placeholder|yes|true|on|authenticated|auth)
+      AUTH_MODE="placeholder"
+      AUTH_ENABLED="true"
+      ;;
+    *)
+      die "--auth must be one of: none, placeholder, or an accepted alias"
+      ;;
+  esac
+}
+
+normalize_auth "${AUTH}"
 
 if [[ -z "${COMPANY_SLUG}" ]]; then
   COMPANY_SLUG="$(slugify "${COMPANY}")"
@@ -100,7 +119,8 @@ sed \
   -e "s|{{LOGIN_PATH}}|$(json_escape "${LOGIN_PATH}")|g" \
   -e "s|{{ENVIRONMENT}}|$(json_escape "${ENVIRONMENT}")|g" \
   -e "s|{{PROFILE}}|$(json_escape "${PROFILE}")|g" \
-  -e "s|{{AUTH}}|$(json_escape "${AUTH}")|g" \
+  -e "s|{{AUTH_MODE}}|$(json_escape "${AUTH_MODE}")|g" \
+  -e "s|{{AUTH_ENABLED}}|$(json_escape "${AUTH_ENABLED}")|g" \
   -e "s|{{TESTER}}|$(json_escape "${TESTER}")|g" \
   "${SCRIPT_DIR}/templates/target.env.tmpl" > "${TARGET_ENV}"
 
@@ -123,7 +143,8 @@ cat > "${METADATA_JSON}" <<EOF
   "login_path": "$(json_escape "${LOGIN_PATH}")",
   "environment": "$(json_escape "${ENVIRONMENT}")",
   "profile": "$(json_escape "${PROFILE}")",
-  "auth": "$(json_escape "${AUTH}")",
+  "auth_mode": "$(json_escape "${AUTH_MODE}")",
+  "auth_enabled": ${AUTH_ENABLED},
   "tester": "$(json_escape "${TESTER}")",
   "run_id": "$(json_escape "${RUN_ID}")",
   "workspace": "$(json_escape "${WORKSPACE}")",

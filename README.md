@@ -19,6 +19,7 @@ No company name, domain, credentials, cookies, HAR files, logs, reports, or gene
   --engagement "External web baseline" \
   --target "https://app.example.test" \
   --profile safe \
+  --auth none \
   --tester "Analyst Name" \
   --yes
 
@@ -48,12 +49,31 @@ sudo ./install.sh
   --login-path "/login" \
   --environment production \
   --profile safe \
+  --auth none \
   --tester "Jane Analyst" \
   --output-root assessments \
   --yes
 ```
 
 This creates the canonical workspace structure, renders target and scope config from templates, writes metadata, and creates phase evidence directories.
+
+Use `--auth none` for unauthenticated testing and `--auth placeholder` to create an authenticated testing scaffold. The aliases `--auth no` and `--auth yes` are also accepted, along with other boolean-style aliases documented by `init-assessment.sh --help`.
+
+For an authenticated testing scaffold:
+
+```bash
+./init-assessment.sh \
+  --company "Acme Inc" \
+  --engagement "Q2 authenticated scaffold" \
+  --target "https://www.example.com" \
+  --login-path "/login" \
+  --environment staging \
+  --profile safe \
+  --auth placeholder \
+  --tester "Jane Analyst" \
+  --output-root assessments \
+  --yes
+```
 
 ## Run All Phases
 

@@ -2,6 +2,8 @@
 
 Authenticated testing is placeholder-only in this foundation.
 
+Use `--auth none` for unauthenticated testing. Use `--auth placeholder` to create an authenticated testing scaffold. The aliases `--auth no` and `--auth yes` are accepted for convenience.
+
 Before implementation, add:
 
 - Written authorization for authenticated testing.
