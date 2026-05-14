@@ -31,11 +31,9 @@ grep -q 'AUTH_ENABLED="false"' "${workspace}/config/target.env"
 grep -q '"auth_mode": "none"' "${workspace}/config/metadata.json"
 grep -q '"auth_enabled": false' "${workspace}/config/metadata.json"
 
-./phases/03-nikto.sh --workspace "${workspace}" >/dev/null
 ./status.sh --workspace "${workspace}" >/dev/null
 ./report.sh --workspace "${workspace}" >/dev/null
 
-[[ -f "${workspace}/status/phase-3-nikto.json" ]]
 [[ -f "${workspace}/reports/report.md" ]]
 
 for alias in none no false unauthenticated OFF; do
@@ -90,7 +88,11 @@ grep -q 'error: workspace does not exist:' <<< "${missing_output}"
 
 fakebin="${tmp_root}/fakebin"
 mkdir -p "${fakebin}"
-real_python_bin="$(command -v python3 || command -v python)"
+real_python_bin="$(python3 - <<'PY'
+import sys
+print(sys.executable)
+PY
+)"
 
 for tool in curl openssl nmap nikto nuclei jq python3 testssl zaproxy; do
   cat > "${fakebin}/${tool}" <<'EOF'
@@ -300,6 +302,46 @@ printf '<html><body>%s</body></html>\n' "${url}" > "${body}"
 EOF
 chmod +x "${fakebin}/curl"
 
+cat > "${fakebin}/nikto" <<'EOF'
+#!/usr/bin/env bash
+output=""
+host=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h)
+      host="$2"
+      shift 2
+      ;;
+    -output)
+      output="$2"
+      shift 2
+      ;;
+    -C)
+      printf 'unsafe -C option should not be used\n' >&2
+      exit 9
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+{
+  printf -- '- Nikto v2.5.0\n'
+  printf -- '+ Target URL: %s\n' "${host}"
+  printf -- '+ The anti-clickjacking X-Frame-Options header is not present.\n'
+  printf -- '+ The X-Content-Type-Options header is not present.\n'
+  printf -- '+ Permissions-Policy header is not present.\n'
+  printf -- '+ Referrer-Policy header is not present.\n'
+  printf -- '+ Uncommon header '\''Refresh'\'' found, with contents: 0; url=/next\n'
+  printf -- '+ Server banner changed from '\''awselb/2.0'\'' to '\''private'\''\n'
+  printf -- '+ SSL Certificate Subject Wildcard *.example.test\n'
+  printf -- '+ ERROR: Failed to check for updates: 403 Forbidden\n'
+  printf -- '+ No CGI Directories found (use '\''-C all'\'' to force check all possible dirs)\n'
+} > "${output}"
+printf 'mock nikto scanned %s\n' "${host}"
+EOF
+chmod +x "${fakebin}/nikto"
+
 preflight_workspace="$(
   ./init-assessment.sh \
     --company "Preflight Company" \
@@ -447,6 +489,62 @@ assert any(
     for finding in findings
 )
 PY
+
+PATH="${fakebin}:${PATH}" ./phases/03-nikto.sh --workspace "${preflight_workspace}" --yes >/dev/null
+[[ -f "${preflight_workspace}/status/phase-3-nikto.status" ]]
+[[ -f "${preflight_workspace}/status/phase-3-nikto.json" ]]
+[[ ! -e "${preflight_workspace}/status/phase-3-nikto-login.pid" ]]
+[[ -f "${preflight_workspace}/evidence/phase-3-nikto/nikto-login-latest.txt" ]]
+[[ -f "${preflight_workspace}/evidence/phase-3-nikto/nikto-login-console-latest.txt" ]]
+[[ -f "${preflight_workspace}/evidence/phase-3-nikto/nikto-login-heartbeat-latest.txt" ]]
+[[ -f "${preflight_workspace}/evidence/phase-3-nikto/nikto-summary.md" ]]
+[[ -f "${preflight_workspace}/evidence/phase-3-nikto/nikto-findings.json" ]]
+first_nikto_raw_count="$(find "${preflight_workspace}/evidence/phase-3-nikto" -maxdepth 1 -type f -name 'nikto-login-[0-9]*T[0-9]*Z.txt' | wc -l)"
+[[ "${first_nikto_raw_count}" -eq 1 ]]
+grep -q '^STATUS=success$' "${preflight_workspace}/status/phase-3-nikto.status"
+grep -q '^TARGET_MODE=login$' "${preflight_workspace}/status/phase-3-nikto.status"
+grep -q '^NIKTO_TUNING=x6$' "${preflight_workspace}/status/phase-3-nikto.status"
+grep -q 'target mode: login' "${preflight_workspace}/evidence/phase-3-nikto/nikto-summary.md"
+NIKTO_FINDINGS_FILE="${preflight_workspace}/evidence/phase-3-nikto/nikto-findings.json" python3 - <<'PY'
+import json
+import os
+
+with open(os.environ["NIKTO_FINDINGS_FILE"], encoding="utf-8") as handle:
+    findings = json.load(handle)
+
+def has(title, severity=None, status=None, category=None):
+    for finding in findings:
+        if finding["title"] != title:
+            continue
+        if severity is not None and finding["severity"] != severity:
+            continue
+        if status is not None and finding["status"] != status:
+            continue
+        if category is not None and finding["category"] != category:
+            continue
+        return True
+    return False
+
+assert has("Missing X-Content-Type-Options", "low", "confirmed", "headers")
+assert has("Missing Permissions-Policy", "low", "confirmed", "headers")
+assert has("Missing Referrer-Policy", "low", "confirmed", "headers")
+assert has("Uncommon Refresh header observed", "low", "observed", "headers")
+assert has("Server banner changed during scan", "informational", "informational", "server")
+assert has("Wildcard certificate observed", "informational", "informational", "tls")
+assert has("Nikto update check failed", "informational", "informational", "tooling")
+assert has("No CGI directories found", "informational", "informational", "directories")
+assert not any(f["severity"] == "high" for f in findings)
+PY
+sleep 1
+PATH="${fakebin}:${PATH}" ./phases/03-nikto.sh --workspace "${preflight_workspace}" --yes >/dev/null
+second_nikto_raw_count="$(find "${preflight_workspace}/evidence/phase-3-nikto" -maxdepth 1 -type f -name 'nikto-login-[0-9]*T[0-9]*Z.txt' | wc -l)"
+[[ "${second_nikto_raw_count}" -gt "${first_nikto_raw_count}" ]]
+[[ ! -e "${preflight_workspace}/status/phase-3-nikto-login.pid" ]]
+PATH="${fakebin}:${PATH}" ./phases/03-nikto.sh --workspace "${preflight_workspace}" --yes --clean >/dev/null
+clean_nikto_raw_count="$(find "${preflight_workspace}/evidence/phase-3-nikto" -maxdepth 1 -type f -name 'nikto-login-[0-9]*T[0-9]*Z.txt' | wc -l)"
+[[ "${clean_nikto_raw_count}" -eq 1 ]]
+[[ -f "${preflight_workspace}/evidence/phase-3-nikto/nikto-login-latest.txt" ]]
+[[ ! -e "${preflight_workspace}/status/phase-3-nikto-login.pid" ]]
 
 PATH="${fakebin}:${PATH}" ./phases/01-tls.sh --workspace "${preflight_workspace}" --yes >/dev/null
 [[ -f "${preflight_workspace}/status/phase-1-tls.status" ]]
