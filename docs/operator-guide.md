@@ -124,7 +124,13 @@ Examples:
 ./report.sh --workspace assessments/example-company/app-example-test/20260515T120000Z
 ```
 
-Reports are written under the workspace `reports/` directory. Keep reports and raw evidence out of Git.
+To run Phase 9 directly and build a sanitized evidence package:
+
+```bash
+./phases/09-reporting.sh --workspace assessments/example-company/app-example-test/20260515T120000Z --yes --archive
+```
+
+Reports are written under the workspace `reports/` directory. Keep reports, archives, and raw evidence out of Git.
 
 ## Common options
 

@@ -2,89 +2,145 @@
 
 ## Purpose
 
-Phase 9 normalizes, deduplicates, and packages validated assessment results into report-ready artifacts.
+Phase 9 turns existing workspace evidence into final deliverables. It collects phase outputs, preserves source findings, prioritizes Phase 7 direct validation, deduplicates scanner overlap, builds an evidence index, and can create a sanitized evidence archive.
 
-## What this phase tests
+Phase 9 is an offline reporting phase. It does **not** scan the target, authenticate, install dependencies, call external APIs, or modify prior phase evidence.
 
-Reporting is not a target-testing phase. It tests evidence completeness, finding consistency, deduplication quality, and whether report claims are supported by validation evidence.
+## Default commands
 
-## What this phase does not test
-
-- It does not discover new vulnerabilities.
-- It does not confirm scanner findings by itself.
-- It does not replace Phase 7 validation.
-- It does not include scanner non-findings as vulnerabilities.
-
-## Default command
-
-Current reporting entry point:
+Generate reports through the top-level reporting entry point:
 
 ```bash
 ./report.sh --workspace assessments/<company>/<target>/<run-id>
 ```
 
-A future dedicated phase script may write reporting status under `phase-9-reporting`.
+Run the dedicated phase directly and create an evidence package:
 
-## Useful options
-
-`report.sh` currently accepts `--workspace`. Use workspace-level evidence review before generating final report artifacts.
-
-## Profile/depth controls
-
-Profiles should not change final truth. A deeper profile may produce more observations, but only validated and normalized findings should be promoted into the report.
-
-## Evidence produced
-
-Reporting artifacts are written under:
-
-```text
-reports/
-reports/findings/
+```bash
+./phases/09-reporting.sh --workspace assessments/<company>/<target>/<run-id> --yes --archive
 ```
 
-Expected future artifacts include an executive summary, technical report, evidence index, normalized findings, and an archive manifest or archive package.
+## Options
 
-## Expected results
+- `--workspace <path>`: required workspace path.
+- `--yes`: confirms non-interactive report generation.
+- `--clean`: removes only Phase 9 outputs before regenerating them.
+- `--verbose`: prints detailed generation metadata.
+- `--archive`: creates a sanitized `reports/evidence-package-<run-id>.tar.gz` bundle.
 
-A complete reporting phase should produce:
+## Inputs
 
-- Executive summary.
-- Technical report.
-- Evidence index.
-- Normalized findings JSON or equivalent structured data.
-- Optional encrypted archive or archive manifest.
+Phase 9 loads workspace configuration from:
 
-## How to interpret findings
+- `config/target.env`
+- `config/metadata.json` when present
+- `config/tool-paths.env` when present
 
-Report findings should be validated, deduplicated, and written at the right abstraction level. Granular tool observations should be rolled up when they represent one underlying issue.
+If present, it reads finding files from:
 
-Example rollups:
+- `evidence/phase-1-tls/tls-findings.json`
+- `evidence/phase-2-headers/headers-findings.json`
+- `evidence/phase-3-nikto/nikto-findings.json`
+- `evidence/phase-4-nmap/nmap-findings.json`
+- `evidence/phase-5-nuclei/nuclei-findings.json`
+- `evidence/phase-6-zap/zap-findings.json`
+- `evidence/phase-7-validation/validation-findings.json`
+- `evidence/phase-8-authenticated/authenticated-findings.json`
 
-- CSP `unsafe-inline`, `unsafe-eval`, and missing `form-action` can roll up into `Permissive Content Security Policy`.
-- Missing browser headers can roll up into `Missing Recommended Browser Security Headers`.
-- Scanner non-findings stay informational or are omitted.
+Missing source finding files are recorded in `report-summary.md` rather than treated as fatal.
 
-## Common false positives/noise
+## Outputs
 
-- Duplicate missing-header findings from Phase 2, Nmap, Nuclei, and ZAP.
-- Scanner severity that does not match validated business impact.
-- Informational server banners presented as vulnerabilities.
-- Findings that were contradicted by Phase 7 direct checks.
+Phase 9 writes report deliverables under `reports/`:
 
-## Safety and performance notes
+- `executive-summary.md`
+- `technical-report.md`
+- `findings-final.json`
+- `findings-final.csv`
+- `evidence-index.md`
+- `evidence-index.json`
+- `report-metadata.json`
+- `report-summary.md`
+- `report.md` as a backward-compatible copy of the technical report
 
-- Keep reports, archives, raw evidence, and generated workspaces out of Git.
-- Redact secrets, tokens, cookies, personal data, and unnecessary sensitive content.
-- Encrypt archives according to client or organizational requirements.
-- Ensure final wording distinguishes confirmed findings from observations and limitations.
+It also writes Phase 9 evidence under `evidence/phase-9-reporting/`:
 
-## Troubleshooting
+- `reporting-console-<PHASE_RUN_ID>.txt`
+- `reporting-console-latest.txt`
+- `normalization-notes-<PHASE_RUN_ID>.md`
+- `normalization-notes-latest.md`
+- `source-findings-<PHASE_RUN_ID>.json`
+- `source-findings-latest.json`
 
-- If a finding lacks evidence, return to Phase 7 validation before reporting it.
-- If multiple tools report the same issue, select the clearest direct evidence and deduplicate.
-- If generated report data is empty, confirm parser outputs and normalized findings paths.
-- If an issue is real but low impact, adjust severity and narrative rather than omitting important context.
+The status file `status/phase-9-reporting.status` includes status, timestamps, exit code, message, `PHASE_RUN_ID`, report directory, and whether an archive was created.
 
-## When to increase scope/depth
+## Normalization behavior
 
-Do not increase scanning depth during reporting. If reporting identifies evidence gaps, run targeted Phase 7 validation or an approved phase rerun in a new workspace or with documented evidence handling.
+Phase 9 uses these rules:
+
+1. Prefer Phase 7 direct validation findings over scanner findings.
+2. Final findings normally include only `confirmed` findings, plus useful `observed`/`informational` items when they are appropriate report observations.
+3. Scanner-only duplicates are not promoted when Phase 7 has a grouped finding.
+4. `not_confirmed`, `not_observed`, `not_enabled`, `needs_review`, and `unvalidated` items remain in source findings, normalization notes, limitations, or informational observations.
+5. Scanner findings from phases 2 through 6 are retained in `source-findings-latest.json` for traceability.
+6. Final findings preserve source phases, source IDs, related source titles, and evidence file references.
+7. Common rollups include:
+   - CSP observations into `Permissive Content-Security-Policy`.
+   - Missing browser hardening headers into `Missing recommended browser security headers`.
+   - HSTS max-age below one year as its own finding.
+8. CORS non-reflection, unconfirmed NULL/anonymous cipher support, modern TLS support, redirect context, login cache non-observations, and authenticated testing `not_enabled` are not final vulnerabilities.
+9. Severity is not upgraded above Phase 7 validation evidence.
+10. High or critical severity is not reported unless directly validated.
+
+## Evidence index
+
+`evidence-index.json` and `evidence-index.md` list files under workspace `evidence/`, `status/`, and `reports/`. Entries include:
+
+- relative path
+- file size
+- modified UTC timestamp
+- SHA-256 hash
+- inferred phase
+- inferred file type/category
+
+The index is intended to make report claims traceable to local evidence while keeping all generated artifacts inside the selected workspace.
+
+## Archive behavior
+
+With `--archive`, Phase 9 creates:
+
+```text
+reports/evidence-package-<PHASE_RUN_ID>.tar.gz
+reports/archive-manifest-<PHASE_RUN_ID>.json
+reports/archive-manifest-latest.json
+```
+
+The package includes:
+
+- `config/metadata.json`
+- `config/scope.yaml`
+- `status/`
+- `evidence/`
+- `reports/`
+
+Obvious secret-like files are excluded, including:
+
+- `config/auth.env`
+- paths matching `*cookie*`
+- paths matching `*session*`
+- paths matching `*token*`
+- paths matching `*.har`
+- common browser profile directories
+
+The archive manifest records included files, excluded files, hashes, and the exclusion rules.
+
+## Clean behavior
+
+`--clean` deletes only Phase 9 generated reports, Phase 9 evidence files, archive files/manifests, and `status/phase-9-reporting.status`. It does not delete prior phase evidence or source findings.
+
+## Limitations
+
+- Phase 9 does not create new evidence and cannot confirm a scanner finding by itself.
+- If Phase 7 validation did not run, scanner findings are retained as source findings but not promoted to final vulnerabilities.
+- Authenticated testing remains a limitation when credentials or approved test accounts are not available.
+- Operators should review final wording and evidence before client delivery.

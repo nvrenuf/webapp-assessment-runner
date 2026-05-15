@@ -2,20 +2,36 @@
 set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=lib/common.sh
-source "${SCRIPT_DIR}/lib/common.sh"
-# shellcheck source=lib/findings.sh
-source "${SCRIPT_DIR}/lib/findings.sh"
 
 usage() {
-  printf 'Usage: ./report.sh --workspace PATH\n'
+  printf 'Usage: ./report.sh --workspace PATH [--yes] [--clean] [--verbose] [--archive]\n'
 }
 
-if ! parse_workspace_arg "$@"; then
+args=()
+if [[ $# -eq 0 ]]; then
   usage
-  exit 0
+  exit 1
 fi
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --workspace)
+      [[ $# -ge 2 ]] || { printf 'error: --workspace requires a value\n' >&2; exit 1; }
+      args+=("$1" "$2")
+      shift 2
+      ;;
+    --yes|--clean|--verbose|--archive)
+      args+=("$1")
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      printf 'error: unknown argument: %s\n' "$1" >&2
+      exit 1
+      ;;
+  esac
+done
 
-validate_workspace "${WORKSPACE}"
-write_empty_findings "${WORKSPACE}" >/dev/null
-python3 "${SCRIPT_DIR}/tools/generate-report.py" --workspace "${WORKSPACE}"
+exec "${SCRIPT_DIR}/phases/09-reporting.sh" "${args[@]}"
