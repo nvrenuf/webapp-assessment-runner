@@ -2,188 +2,139 @@
 
 ## Purpose
 
-Phase 7 confirms, contradicts, or downgrades findings from earlier phases using direct, reproducible checks. This phase is the source of truth for final report status.
-
-Phase 7 is intentionally not another scanner phase. It uses targeted `curl` and OpenSSL checks to decide which previously observed issues are actually confirmed, which are duplicates, and which are not confirmed.
-
-## What this phase tests
-
-- Final login-page HTTP headers and response behavior.
-- Content Security Policy weaknesses directly visible on `LOGIN_URL`.
-- Missing recommended browser security headers on the final meaningful HTML response.
-- HSTS presence and `max-age` value.
-- Cache-control behavior for the login page.
-- Basic unauthenticated CORS arbitrary-origin reflection.
-- Base and login redirect chains.
-- Direct TLS 1.2 and TLS 1.3 negotiation with OpenSSL.
-- Direct NULL/anonymous cipher validation with OpenSSL when earlier tools produced related observations.
-- Evidence consistency across earlier phases.
-
-## What this phase does not test
-
-- It does not crawl the application.
-- It does not fuzz, brute force, exploit, or authenticate.
-- It does not run active scanners.
-- It does not broaden target scope beyond configured base/login targets.
-- It does not validate authenticated API CORS or authorization behavior.
-- It does not automatically prove every scanner observation.
-
-Authenticated findings need Phase 8. Reporting rollups and final narrative happen in Phase 9.
+Phase 7 confirms, contradicts, or downgrades likely findings from earlier phases using direct, bounded validation checks. It is not a scanner phase: it does not crawl, fuzz, brute force, authenticate, or perform active exploitation. Its output is designed to de-duplicate Phase 2, ZAP, Nikto, Nmap, Nuclei, and TLS observations into report-friendly validation conclusions.
 
 ## Default command
 
 ```bash
-./phases/07-validation.sh --workspace assessments/<company>/<target>/<run-id> --yes --verbose
+./phases/07-validation.sh --workspace assessments/<company>/<target>/<run-id> --yes
 ```
 
-For a clean test rerun only:
+`--workspace <path>` is required. The phase loads `<workspace>/config/target.env`, `<workspace>/config/tool-paths.env` when present, and `config/profiles/<PROFILE>.env` when present. `CURL_BIN` and `OPENSSL_BIN` from `tool-paths.env` are honored when executable; otherwise the script detects `curl` and `openssl` from `PATH`.
 
-```bash
-./phases/07-validation.sh --workspace assessments/<company>/<target>/<run-id> --yes --clean --verbose
-```
+## Options
 
-Avoid `--clean` for production evidence unless intentionally replacing Phase 7 validation evidence.
+- `--workspace <path>`: Required workspace path.
+- `--yes`: Accepted for consistency with other phases and non-interactive operation.
+- `--clean`: Removes Phase 7 timestamped raw evidence, latest evidence copies, `validation-summary.md`, and `validation-findings.json` before running.
+- `--verbose`: Mirrors additional progress messages to the operator while still preserving the full console log.
+- `-h`, `--help`: Prints usage.
 
-## Useful options
+## Evidence location
 
-- `--workspace <path>`: required workspace path.
-- `--yes`: run non-interactively after scope approval.
-- `--clean`: delete prior Phase 7 validation evidence before rerunning.
-- `--verbose`: print validation progress and output locations.
-- `-h`, `--help`: print usage.
-
-## Configuration loaded
-
-The phase should load these files in order:
-
-1. `<workspace>/config/target.env`
-2. `<workspace>/config/tool-paths.env`, when present
-3. `config/profiles/<PROFILE>.env`, when present
-
-Required target values include:
-
-- `TARGET_BASE_URL`
-- `LOGIN_URL`
-- `TARGET_HOST`
-- `PROFILE`
-
-Tool paths may be supplied by preflight through:
-
-- `CURL_BIN`
-- `OPENSSL_BIN`
-
-If those are absent, the phase should detect `curl` and `openssl` from `PATH`.
-
-## Implemented validation workflow
-
-The intended Phase 7 workflow is:
-
-1. Capture final headers and body from `LOGIN_URL`.
-2. Capture redirect chains for `TARGET_BASE_URL` and `LOGIN_URL`.
-3. Send a single CORS validation request to `LOGIN_URL` with `Origin: https://evil.example`.
-4. Parse and validate CSP directives from the final login response.
-5. Confirm missing browser security headers on the final login response.
-6. Confirm HSTS presence and whether `max-age` meets a one-year hardening baseline.
-7. Confirm login-page cache protection, especially `no-store`.
-8. Run OpenSSL TLS 1.2 and TLS 1.3 negotiation checks.
-9. Run restricted OpenSSL NULL/aNULL/eNULL validation.
-10. Produce grouped, report-friendly validation findings.
-
-Phase 7 should not generate a separate final finding for every scanner observation. It should group related issues into report-level conclusions.
-
-## Evidence produced
-
-Evidence is written under:
+All Phase 7 evidence is written under the selected workspace only:
 
 ```text
 <workspace>/evidence/phase-7-validation/
 ```
 
-Expected timestamped raw artifacts:
+The status file is written to:
 
-- `validation-login-headers-<run-id>.txt`
-- `validation-login-body-<run-id>.html`
-- `validation-cors-headers-<run-id>.txt`
-- `validation-base-redirects-<run-id>.txt`
-- `validation-login-redirects-<run-id>.txt`
-- `validation-openssl-tls12-<run-id>.txt`
-- `validation-openssl-tls13-<run-id>.txt`
-- `validation-openssl-null-anon-<run-id>.txt`
-- `validation-console-<run-id>.txt`
+```text
+<workspace>/status/phase-7-validation.status
+```
 
-Expected latest copies:
+The status file includes `STATUS`, `STARTED_UTC`, `FINISHED_UTC`, `EXIT_CODE`, `MESSAGE`, and `PHASE_RUN_ID`.
 
-- `validation-login-headers-latest.txt`
-- `validation-login-body-latest.html`
-- `validation-cors-headers-latest.txt`
-- `validation-base-redirects-latest.txt`
-- `validation-login-redirects-latest.txt`
-- `validation-openssl-tls12-latest.txt`
-- `validation-openssl-tls13-latest.txt`
-- `validation-openssl-null-anon-latest.txt`
-- `validation-console-latest.txt`
+## Raw evidence files
 
-Stable outputs:
+Each run writes timestamped raw files and updates matching `latest` copies:
+
+- `validation-login-headers-${PHASE_RUN_ID}.txt` and `validation-login-headers-latest.txt`
+- `validation-login-body-${PHASE_RUN_ID}.html` and `validation-login-body-latest.html`
+- `validation-cors-headers-${PHASE_RUN_ID}.txt` and `validation-cors-headers-latest.txt`
+- `validation-base-redirects-${PHASE_RUN_ID}.txt` and `validation-base-redirects-latest.txt`
+- `validation-login-redirects-${PHASE_RUN_ID}.txt` and `validation-login-redirects-latest.txt`
+- `validation-openssl-tls12-${PHASE_RUN_ID}.txt` and `validation-openssl-tls12-latest.txt`
+- `validation-openssl-tls13-${PHASE_RUN_ID}.txt` and `validation-openssl-tls13-latest.txt`
+- `validation-openssl-null-anon-${PHASE_RUN_ID}.txt` and `validation-openssl-null-anon-latest.txt`
+- `validation-console-${PHASE_RUN_ID}.txt` and `validation-console-latest.txt`
+
+Stable outputs are:
 
 - `validation-summary.md`
 - `validation-findings.json`
 
-Status files:
+## Validation logic
 
-- `<workspace>/status/phase-7-validation.status`
-- `<workspace>/status/phase-7-validation.json`, if shared status writing is enabled
+### Login headers
 
-## Expected validation findings
+Phase 7 captures the final login response from `LOGIN_URL` with `curl -L`, saves the full response headers and body, and extracts report-relevant headers from the final header block:
 
-Phase 7 should produce grouped findings such as:
+- `content-security-policy`
+- `x-content-type-options`
+- `referrer-policy`
+- `permissions-policy`
+- `strict-transport-security`
+- `x-frame-options`
+- `cache-control`
+- `refresh`
+- `access-control-allow-origin`
+- `access-control-allow-credentials`
+- `vary`
 
-### Permissive Content-Security-Policy
+### CSP
 
-Confirmed when the final login-page CSP directly shows material weaknesses, such as:
+Phase 7 validates whether CSP exists on the final login response and checks for grouped CSP weaknesses:
 
 - `script-src` includes `'unsafe-inline'`
 - `script-src` includes `'unsafe-eval'`
-- `form-action` is missing
+- `style-src` includes `'unsafe-inline'`
+- missing `form-action`
+- missing `base-uri`
+- missing `object-src`
+- broad wildcard sources such as `https://*`
+- broad `frame-ancestors`
 
-Recommended remediation should include removing `unsafe-eval`, replacing `unsafe-inline` with nonces or hashes where practical, adding `form-action 'self'`, adding `base-uri 'self'`, and adding `object-src 'none'`.
+The grouped `Permissive Content-Security-Policy` finding is `medium/confirmed` when `script-src 'unsafe-inline'`, `script-src 'unsafe-eval'`, or missing `form-action` is directly observed. Additional CSP issues are included as evidence notes so the report has one clear validation-level conclusion instead of many scanner duplicates.
 
-### Missing recommended browser security headers
+### Browser security headers
 
-Confirmed when the final login response is missing one or more of:
+The `Missing recommended browser security headers` finding is `low/confirmed` if any of these headers are missing from the final login response:
 
 - `X-Content-Type-Options`
 - `Referrer-Policy`
 - `Permissions-Policy`
 
-Recommended remediation should include `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, and a restrictive `Permissions-Policy` baseline.
+### HSTS
 
-### HSTS max-age below hardening baseline
+Phase 7 validates HSTS on the final login response:
 
-Confirmed as low severity when HSTS is present but `max-age` is below `31536000`. If HSTS is missing entirely on the final login response, that is stronger evidence than a low hardening gap and should be treated separately.
+- Missing HSTS creates a `medium/confirmed` finding.
+- Present HSTS with `max-age < 31536000` creates a `low/confirmed` hardening finding.
+- Present HSTS meeting the one-year baseline creates an informational good observation.
 
-### CORS arbitrary origin reflection
+### Cache controls
 
-Confirmed only when direct validation shows the arbitrary origin is reflected. If reflection or wildcard origin is combined with `Access-Control-Allow-Credentials: true`, severity should increase. If not observed, record as informational or `not_observed`, not as a vulnerability.
+Phase 7 validates sensitive-page cache protection on the login response. `no-store`, `private`, `no-cache`, or equivalent `max-age=0` evidence is treated as cache risk not observed. If no equivalent protection is observed, Phase 7 creates a `medium/confirmed` login cache protection finding.
 
-### Login cache protection
+### CORS
 
-If `Cache-Control` includes `no-store` or equivalent sensitive-page protection, cache risk should be `not_observed` or omitted. Do not report cache risk when direct validation confirms `no-store`.
+Phase 7 sends one direct request to `LOGIN_URL` with:
 
-### NULL/anonymous cipher support
+```text
+Origin: https://evil.example
+```
 
-Confirmed only if OpenSSL actually negotiates a NULL or anonymous cipher. If OpenSSL output says `Cipher is (NONE)`, the scanner observation is not confirmed.
+It confirms arbitrary origin reflection only when `Access-Control-Allow-Origin` reflects `https://evil.example`. Reflection is `medium/confirmed`; reflection plus `Access-Control-Allow-Credentials: true` is `high/confirmed`. Wildcard plus credentials is also treated as directly confirmed high risk. If reflection is not observed, the phase emits an informational `not_observed` object.
 
-### TLS modern protocol support
+### Redirects and Refresh
 
-Informational when TLS 1.2 and TLS 1.3 both negotiate successfully. Do not convert successful modern TLS negotiation into a vulnerability.
+Phase 7 captures redirect chains for both `TARGET_BASE_URL` and `LOGIN_URL`, records the final login status, and notes whether a `Refresh` header is present. Redirect-only base response header gaps are context only and are not promoted to confirmed missing-header findings.
 
-### Redirect behavior
+### TLS
 
-Base URL redirects should be documented as informational. Do not report missing browser headers on redirect-only base responses when the final login response is the meaningful content response.
+Phase 7 runs direct OpenSSL checks against `TARGET_HOST:443`:
 
-## Finding schema
+- TLS 1.2 negotiation
+- TLS 1.3 negotiation
+- restricted TLS 1.2 `NULL:eNULL:aNULL` negotiation
 
-`validation-findings.json` should contain grouped findings using this schema:
+NULL or anonymous cipher support is `high/confirmed` only if OpenSSL actually negotiates a real NULL or anonymous cipher. If OpenSSL reports `Cipher is (NONE)`, the finding is `informational/not_confirmed`. Modern TLS support is informational when both TLS 1.2 and TLS 1.3 negotiate successfully; direct TLS failures are reported as low/medium only when Phase 7 directly observes the condition.
+
+## Structured findings
+
+`validation-findings.json` contains grouped objects with this schema:
 
 ```json
 {
@@ -200,49 +151,30 @@ Base URL redirects should be documented as informational. Do not report missing 
 }
 ```
 
-## How to interpret findings
+The phase intentionally produces grouped findings rather than one item for every scanner observation.
 
-Phase 7 decisions should override scanner assumptions. If direct `curl` or OpenSSL evidence contradicts a scanner, the scanner item is not confirmed. If evidence confirms the condition but impact is limited, severity and report wording should reflect the validated impact.
+## Summary output
 
-The output should be more report-friendly than scanner output. For example:
+`validation-summary.md` includes:
 
-- Multiple CSP scanner alerts should roll up into `Permissive Content-Security-Policy`.
-- Missing header observations should roll up into `Missing recommended browser security headers`.
-- CORS non-reflection should be a non-finding.
-- TLS NULL/anonymous claims should be confirmed only through OpenSSL negotiation.
+- target URLs and run ID
+- checks performed
+- extracted header values
+- confirmed findings
+- not confirmed / not observed / needs-review findings
+- informational observations
+- direct evidence file list
+- limitations
+- a note that scanner outputs are de-duplicated into validation-level conclusions
 
-## Common false positives/noise
+## How Phase 7 feeds reporting
 
-- Scanner findings based on redirect responses instead of final content.
-- Header findings duplicated across Phase 2, Nikto, Nmap, Nuclei, and ZAP.
-- TLS warnings that cannot be negotiated with OpenSSL.
-- CORS observations on unauthenticated pages that do not expose authenticated APIs.
-- ZAP and Nuclei CSP findings that describe the same underlying CSP policy weakness.
+Report authors should prefer Phase 7 statuses over scanner assumptions. A scanner-only item is not report-confirmed unless Phase 7 directly observes it. If Phase 7 contradicts a scanner result, carry the scanner item as not confirmed or omit it from vulnerability reporting. High findings should appear only when direct Phase 7 evidence validates the high-risk condition.
 
 ## Safety and performance notes
 
-- Use targeted, low-volume direct checks.
-- Do not turn validation into crawling, fuzzing, exploitation, or active scanning.
-- Keep commands reproducible and store raw outputs.
-- Preserve validation evidence; avoid `--clean` unless intentionally replacing a failed validation attempt.
-- Phase 7 evidence is likely to be cited directly in the final report, so treat it as high-value evidence.
-
-## Troubleshooting
-
-- Confirm `TARGET_BASE_URL`, `LOGIN_URL`, and `TARGET_HOST` in `config/target.env`.
-- Review `validation-console-latest.txt` for command failures.
-- Compare Phase 7 headers with Phase 2 `*-headers-latest.txt` if behavior changed.
-- If TLS behavior is inconsistent, confirm SNI and source network.
-- If `curl` output differs from browser or ZAP output, check redirects, CDN/WAF behavior, and response variance by user agent.
-- If a finding appears only in scanner output and not in Phase 7, mark it not confirmed unless there is a specific reason to retain it.
-
-## When to increase scope/depth
-
-Increase validation depth only to answer a specific report question, such as:
-
-- whether the same missing header exists on another final HTML route,
-- whether a CSP issue affects authenticated application pages,
-- whether an API endpoint reflects arbitrary CORS origins,
-- whether a TLS issue appears on another explicitly authorized hostname or port.
-
-Do not use Phase 7 to discover unrelated issues. Additional validation targets require explicit scope approval or should move into authenticated Phase 8.
+- Use targeted, low-volume direct checks only.
+- Keep evidence inside the selected workspace.
+- Do not broaden scope beyond `TARGET_BASE_URL`, `LOGIN_URL`, and `TARGET_HOST` from workspace configuration.
+- Do not add crawling, fuzzing, race testing, brute force, credential stuffing, or intrusive exploitation to this phase.
+- Authenticated testing remains placeholder-only until explicit safe handling exists.
