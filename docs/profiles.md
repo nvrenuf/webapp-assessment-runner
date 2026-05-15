@@ -11,7 +11,7 @@ Profiles define the default assessment depth for phases that support tunable rat
 | `deep` | Expanded coverage for approved windows. | Still avoids intrusive behavior, but runs longer and may include more targets such as both base and login URLs. |
 | `maintenance` | Recurring checks of known targets with operator approval. | May be broader or faster than normal profiles. Treat as requiring explicit approval and a suitable maintenance window. |
 
-`maintenance` does not mean unrestricted testing. Any intrusive active scan, broad discovery, fuzzing, brute force, DoS, race testing, or authenticated workflow abuse still requires explicit written authorization and a defined window.
+`maintenance` does not mean unrestricted testing. Any intrusive active scan, broad discovery, fuzzing, brute force, DoS, race testing, AJAX spidering, or authenticated workflow abuse still requires explicit written authorization and a defined window.
 
 ## Example profile settings
 
@@ -26,6 +26,9 @@ The repository profile files live under `config/profiles/`. Current example defa
 | Nuclei rate/concurrency | `NUCLEI_RATE=1`, `NUCLEI_CONCURRENCY=1` | `NUCLEI_RATE=1`, `NUCLEI_CONCURRENCY=1` | `NUCLEI_RATE=2`, `NUCLEI_CONCURRENCY=1` | `NUCLEI_RATE=3`, `NUCLEI_CONCURRENCY=2` |
 | Nuclei tags | `exposure,misconfig,cors,csp,headers,tls,ssl` | `exposure,misconfig,cors,csp,headers,tls,ssl` | `exposure,misconfig,cors,csp,headers,tls,ssl,tech` | `exposure,misconfig,cors,csp,headers,tls,ssl,tech,token,cloud` |
 | Nuclei excluded tags | `fuzz,bruteforce,dos,race,intrusive` | `fuzz,bruteforce,dos,race,intrusive` | `fuzz,bruteforce,dos,race,intrusive` | `dos,race,intrusive` |
+| ZAP spider scope | `ZAP_SPIDER_MAX_CHILDREN=5`, `ZAP_SPIDER_RECURSE=false` | `ZAP_SPIDER_MAX_CHILDREN=10`, `ZAP_SPIDER_RECURSE=false` | `ZAP_SPIDER_MAX_CHILDREN=25`, `ZAP_SPIDER_RECURSE=true` | `ZAP_SPIDER_MAX_CHILDREN=50`, `ZAP_SPIDER_RECURSE=true` |
+| ZAP timing | `ZAP_START_TIMEOUT=120`, `ZAP_PASSIVE_TIMEOUT=600` | `ZAP_START_TIMEOUT=120`, `ZAP_PASSIVE_TIMEOUT=900` | `ZAP_START_TIMEOUT=180`, `ZAP_PASSIVE_TIMEOUT=1200` | `ZAP_START_TIMEOUT=180`, `ZAP_PASSIVE_TIMEOUT=1800` |
+| ZAP active/AJAX controls | `ZAP_ACTIVE_SCAN=false`, `ZAP_AJAX_SPIDER=false` | `ZAP_ACTIVE_SCAN=false`, `ZAP_AJAX_SPIDER=false` | `ZAP_ACTIVE_SCAN=false`, `ZAP_AJAX_SPIDER=false` | `ZAP_ACTIVE_SCAN=false`, `ZAP_AJAX_SPIDER=false` |
 
 ## How profiles are applied
 
@@ -42,6 +45,8 @@ Preferred override methods:
 3. Record the reason for the override in the run notes or report narrative.
 
 Keep overrides narrow and explicit. For example, changing `NMAP_PORTS=80,443` for a known web target is different from approving broad port discovery. Broader discovery should be scoped and documented as a separate activity.
+
+ZAP overrides deserve extra care. Increasing `ZAP_SPIDER_MAX_CHILDREN` or enabling recursive spidering increases application traffic and may discover additional routes. `ZAP_ACTIVE_SCAN=true` and `ZAP_AJAX_SPIDER=true` are intentionally blocked in Phase 6; authenticated/deeper browser-assisted testing belongs in later explicitly authorized phases.
 
 ## When to increase depth
 

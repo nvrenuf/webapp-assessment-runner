@@ -20,7 +20,7 @@ def run_tool(*args: str) -> subprocess.CompletedProcess[str]:
 def test_parser_stubs_write_empty_findings(tmp_path: Path) -> None:
     zap_output = tmp_path / "parse-zap.py.json"
     run_tool("tools/parse-zap.py", "--output", str(zap_output))
-    assert json.loads(zap_output.read_text(encoding="utf-8")) == {"findings": []}
+    assert json.loads(zap_output.read_text(encoding="utf-8")) == []
 
     nuclei_output = tmp_path / "parse-nuclei.py.json"
     run_tool("tools/parse-nuclei.py", "--output", str(nuclei_output))
@@ -569,3 +569,68 @@ def test_phase_5_nuclei_missing_jsonl_support_fails(tmp_path: Path) -> None:
     assert "STATUS=failure" in status_text
     assert "NUCLEI_JSON_MODE=" in status_text
     assert "Nuclei JSONL output mode detection failed" in console_text
+
+
+def test_parse_zap_classification_and_deduplication(tmp_path: Path) -> None:
+    alerts = tmp_path / "zap-alerts.json"
+    output = tmp_path / "zap-findings.json"
+    alerts.write_text(
+        json.dumps(
+            {
+                "alerts": [
+                    {
+                        "alert": "Content Security Policy (CSP) Header Not Set / unsafe-inline",
+                        "risk": "Medium",
+                        "url": "https://app.example.test/login",
+                        "evidence": "unsafe-inline",
+                        "description": "CSP allows unsafe-inline and is missing form-action.",
+                    },
+                    {
+                        "alert": "Content Security Policy (CSP) Header Not Set / unsafe-inline",
+                        "risk": "Medium",
+                        "url": "https://app.example.test/login",
+                        "evidence": "unsafe-inline",
+                        "description": "duplicate",
+                    },
+                    {
+                        "alert": "X-Content-Type-Options Header Missing",
+                        "risk": "Low",
+                        "url": "https://app.example.test/login",
+                        "evidence": "X-Content-Type-Options",
+                    },
+                    {
+                        "alert": "Cookie No HttpOnly Flag",
+                        "risk": "Low",
+                        "url": "https://app.example.test/login",
+                        "evidence": "sessionid",
+                    },
+                    {
+                        "alert": "Modern Web Application",
+                        "risk": "Informational",
+                        "url": "https://app.example.test/login",
+                        "evidence": "The application appears to be a modern web application.",
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    run_tool("tools/parse-zap.py", "--input", str(alerts), "--output", str(output))
+    findings = json.loads(output.read_text(encoding="utf-8"))
+
+    assert len(findings) == 4
+
+    def has(title: str, severity: str, status: str, category: str) -> bool:
+        return any(
+            item["title"] == title
+            and item["severity"] == severity
+            and item["status"] == status
+            and item["category"] == category
+            for item in findings
+        )
+
+    assert has("Content Security Policy (CSP) Header Not Set / unsafe-inline", "medium", "needs_review", "csp")
+    assert has("X-Content-Type-Options Header Missing", "low", "observed", "headers")
+    assert has("Cookie No HttpOnly Flag", "low", "observed", "cookie")
+    assert has("Modern Web Application", "informational", "informational", "misc")
