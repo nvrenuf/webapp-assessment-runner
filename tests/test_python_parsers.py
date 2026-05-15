@@ -179,6 +179,44 @@ def test_parse_nmap_classification_rules(tmp_path: Path) -> None:
     assert not any(item["severity"] == "high" for item in findings)
 
 
+def test_parse_nmap_missing_headers_with_underscore_names(tmp_path: Path) -> None:
+    raw = tmp_path / "nmap-web-underscore-20260515T000000Z.nmap"
+    output = tmp_path / "nmap-findings.json"
+    raw.write_text(
+        """
+Starting Nmap 7.95 ( https://nmap.org )
+Nmap scan report for app.example.test (203.0.113.10)
+Host is up (0.020s latency).
+PORT    STATE SERVICE  VERSION
+443/tcp open  ssl/http Amazon Elastic Load Balancing
+| http-security-headers:
+|   X_Content_Type_Options: Header not set
+|   Referrer_Policy: Header not set
+|_  Permissions_Policy: Header not set
+Nmap done: 1 IP address (1 host up) scanned in 1.23 seconds
+""".lstrip(),
+        encoding="utf-8",
+    )
+
+    run_tool(
+        "tools/parse-nmap.py",
+        "--input",
+        str(raw),
+        "--output",
+        str(output),
+        "--target-host",
+        "app.example.test",
+        "--ports",
+        "443",
+    )
+    findings = json.loads(output.read_text(encoding="utf-8"))
+    titles = {item["title"] for item in findings}
+
+    assert "Missing X-Content-Type-Options" in titles
+    assert "Missing Referrer-Policy" in titles
+    assert "Missing Permissions-Policy" in titles
+
+
 def make_workspace(tmp_path: Path, fake_nmap: Path) -> Path:
     workspace = tmp_path / "workspace"
     (workspace / "config").mkdir(parents=True)

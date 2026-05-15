@@ -17,6 +17,23 @@ HEADER_MISSING_PATTERNS = {
 }
 
 
+def normalize_header_name(name: str) -> str:
+    """Normalize Nmap header names so hyphens and underscores compare equally."""
+    return name.strip().lower().replace("_", "-")
+
+
+def missing_header_observed(text: str, header_key: str) -> bool:
+    normalized_key = normalize_header_name(header_key)
+    missing_re = re.compile(r"\b(not set|not present|missing)\b", re.IGNORECASE)
+    for raw_line in text.splitlines():
+        if not missing_re.search(raw_line) or ":" not in raw_line:
+            continue
+        header_name = raw_line.split(":", 1)[0].strip(" |_\t")
+        if normalize_header_name(header_name) == normalized_key:
+            return True
+    return False
+
+
 def configured_ports(value: str) -> set[int]:
     ports: set[int] = set()
     for part in value.split(","):
@@ -195,8 +212,7 @@ def parse_nmap_text(text: str, target_host: str, ports_value: str) -> list[dict[
 
     seen_missing: set[str] = set()
     for key, pretty in HEADER_MISSING_PATTERNS.items():
-        pattern = rf"{re.escape(pretty)}[^\n]*(not set|not present|missing)|{key}[^\n]*(not set|not present|missing)"
-        if re.search(pattern, text, re.IGNORECASE) and key not in seen_missing:
+        if missing_header_observed(text, key) and key not in seen_missing:
             seen_missing.add(key)
             add(
                 f"Missing {pretty}",
