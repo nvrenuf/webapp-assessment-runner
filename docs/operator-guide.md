@@ -62,7 +62,7 @@ Record the generated workspace path, for example:
 assessments/example-company/app-example-test/20260515T120000Z
 ```
 
-Use `--auth placeholder` only when you want the authenticated-testing scaffold. Do not place real credentials in Git, command history, or reusable repository files.
+Use `--auth placeholder` only when you want the Phase 8 authenticated-testing scaffold. Phase 8 remains scaffold-only until real credential handling and explicit authenticated automation are implemented; do not place real credentials in Git, command history, workspace `auth.env`, or reusable repository files.
 
 ### 4. Run preflight
 
@@ -84,6 +84,7 @@ Running phases individually gives the operator control over timing, monitoring, 
 ./phases/03-nikto.sh --workspace assessments/example-company/app-example-test/20260515T120000Z --yes --verbose
 ./phases/04-nmap.sh --workspace assessments/example-company/app-example-test/20260515T120000Z --yes --verbose
 ./phases/05-nuclei.sh --workspace assessments/example-company/app-example-test/20260515T120000Z --yes --verbose
+./phases/08-authenticated.sh --workspace assessments/example-company/app-example-test/20260515T120000Z --yes
 ```
 
 `assess.sh` can run the current phase sequence, but individual phase execution is preferred when the operator needs approval gates, manual review between phases, or close monitoring of long-running tools.
