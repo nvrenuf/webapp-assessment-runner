@@ -429,9 +429,9 @@ def make_nuclei_workspace(tmp_path: Path, fake_nuclei: Path) -> Path:
 
 def write_fake_nuclei(path: Path, help_mode: str = "jsonl-export") -> None:
     if help_mode == "jsonl-export":
-        help_text = "  -jsonl-export string  export jsonl results to file\n  -jsonl  write json lines\n"
+        help_text = "  -jle, -jsonl-export string  export jsonl results to file\n  -j, -jsonl  write json lines\n"
     elif help_mode == "jsonl-o":
-        help_text = "  -jsonl  write json lines\n  -o string  output file\n"
+        help_text = "  -j, -jsonl  write json lines\n  -o string  output file\n"
     elif help_mode == "none":
         help_text = "  -silent  show only results\n"
     else:
@@ -514,7 +514,9 @@ def test_phase_5_nuclei_mocked_rerun_and_clean(tmp_path: Path) -> None:
     status_text = (workspace / "status" / "phase-5-nuclei.status").read_text(encoding="utf-8")
     assert "STATUS=success" in status_text
     assert "NUCLEI_JSON_MODE=jsonl-export" in status_text
-    assert "Selected Nuclei JSONL output mode: jsonl-export" in (evidence / "nuclei-console-latest.txt").read_text(encoding="utf-8")
+    console_text = (evidence / "nuclei-console-latest.txt").read_text(encoding="utf-8")
+    assert "Selected Nuclei JSONL output mode: jsonl-export" in console_text
+    assert " -jsonl-export " in console_text
     assert "NUCLEI_JSON_MODE: jsonl-export" in (evidence / "nuclei-summary.md").read_text(encoding="utf-8")
     first_raw = sorted(evidence.glob("nuclei-results-[0-9]*T[0-9]*Z.jsonl"))
     assert len(first_raw) == 1
