@@ -1,0 +1,62 @@
+# Client intake template for assessment planning and final reporting.
+# Keep completed copies inside the generated workspace only. Do not commit
+# client-specific details, credentials, cookies, session data, tokens, or secrets.
+
+engagement:
+  client_name: Example Company
+  engagement_name: Example web application assessment
+  environment: example environment
+  assessment_type: low-impact web application security assessment
+  business_owner: Example Business Owner
+  technical_contact: Example Technical Contact
+  security_contact: security@example.com
+  report_recipient: security@example.com
+  tester: Example Tester
+  requested_start_date: 2026-01-01
+  requested_end_date: 2026-01-05
+
+scope:
+  target_base_url: https://www.example.com
+  login_path: /login
+  additional_allowed_hosts: www.example.com
+  explicitly_out_of_scope: out-of-scope.example.com
+  approved_source_ips: 192.0.2.10
+  testing_window: Example approved testing window
+  rate_limits_or_traffic_constraints: Example low-impact rate limits
+
+authorization:
+  authorization_reference: Example authorization reference
+  authorized_by: Example Authorizer
+  authorization_date: 2026-01-01
+  allowed_testing_types: low-impact unauthenticated checks, passive review
+  prohibited_testing_types: denial of service, brute force, credential stuffing, destructive testing
+  destructive_testing_allowed: false
+  production_testing_allowed: false
+
+application_context:
+  application_purpose: Example application purpose
+  user_roles: Example user roles
+  sensitive_data_types: Example sensitive data categories; do not include real sensitive data
+  critical_workflows: Example critical workflows
+  known_integrations: api.example.com
+  third_party_dependencies: Example third-party dependencies
+
+authenticated_testing:
+  credentials_available: false
+  account_model_available: false
+  test_user_requirements: Example test user requirements; do not store credentials here
+  tenant_isolation_required: false
+  role_testing_required: false
+  notes: Example authenticated testing notes without secrets
+
+reporting:
+  report_classification: Example Confidential
+  delivery_format: Markdown and JSON artifacts
+  required_sections: executive summary, technical report, findings, evidence index
+  due_date: 2026-01-10
+  distribution_restrictions: Example distribution restrictions
+
+notes:
+  operator_notes: Example operator notes
+  client_notes: Example client notes
+  assumptions: Example assumptions

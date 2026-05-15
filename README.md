@@ -16,6 +16,7 @@ No company name, domain, credentials, cookies, HAR files, logs, reports, or gene
 - [Operator guide](docs/operator-guide.md) for end-to-end workflow, safe defaults, common phase options, and production run behavior.
 - [Profiles guide](docs/profiles.md) for `safe`, `balanced`, `deep`, and `maintenance` profile intent and override guidance.
 - [Evidence and retention guide](docs/evidence-and-retention.md) for workspace evidence layout, timestamped outputs, Git hygiene, archiving, and retention.
+- [Client intake guide](docs/client-intake.md) for workspace-local engagement metadata used by final reporting.
 - Phase documentation:
   - [Phase 0: Preflight](docs/phases/phase-0-preflight.md)
   - [Phase 1: TLS](docs/phases/phase-1-tls.md)
@@ -35,15 +36,15 @@ No company name, domain, credentials, cookies, HAR files, logs, reports, or gene
 ./init-assessment.sh \
   --company "Example Company" \
   --engagement "External web baseline" \
-  --target "https://app.example.test" \
+  --target "https://app.example.com" \
   --profile safe \
   --auth none \
   --tester "Analyst Name" \
   --yes
 
-./assess.sh --workspace assessments/example-company/app-example-test/<run-id>
-./status.sh --workspace assessments/example-company/app-example-test/<run-id>
-./report.sh --workspace assessments/example-company/app-example-test/<run-id>
+./assess.sh --workspace assessments/example-company/app-example-com/<run-id>
+./status.sh --workspace assessments/example-company/app-example-com/<run-id>
+./report.sh --workspace assessments/example-company/app-example-com/<run-id>
 ```
 
 Replace `<run-id>` with the run directory created by `init-assessment.sh`.
@@ -63,20 +64,20 @@ Required tools are `bash`, `curl`, `openssl`, `nmap`, `nikto`, `nuclei`, `jq`, a
 
 ```bash
 ./init-assessment.sh \
-  --company "Acme Inc" \
-  --company-slug acme-inc \
-  --engagement "Q2 unauthenticated baseline" \
+  --company "Example Company" \
+  --company-slug example-company \
+  --engagement "Example unauthenticated baseline" \
   --target "https://www.example.com" \
   --login-path "/login" \
   --environment production \
   --profile safe \
   --auth none \
-  --tester "Jane Analyst" \
+  --tester "Example Analyst" \
   --output-root assessments \
   --yes
 ```
 
-This creates the canonical workspace structure, renders target and scope config from templates, writes metadata, and creates phase evidence directories.
+This creates the canonical workspace structure, renders target and scope config from templates, writes metadata, creates `config/client-intake.yaml` from the placeholder template, and creates phase evidence directories. Edit the workspace-local intake file before final reporting when client-approved context is available.
 
 Use `--auth none` for unauthenticated testing and `--auth placeholder` to create an authenticated testing scaffold. The aliases `--auth no` and `--auth yes` are also accepted, along with other boolean-style aliases documented by `init-assessment.sh --help`.
 
@@ -84,14 +85,14 @@ For an authenticated testing scaffold:
 
 ```bash
 ./init-assessment.sh \
-  --company "Acme Inc" \
-  --engagement "Q2 authenticated scaffold" \
+  --company "Example Company" \
+  --engagement "Example authenticated scaffold" \
   --target "https://www.example.com" \
   --login-path "/login" \
   --environment staging \
   --profile safe \
   --auth placeholder \
-  --tester "Jane Analyst" \
+  --tester "Example Analyst" \
   --output-root assessments \
   --yes
 ```
@@ -99,7 +100,7 @@ For an authenticated testing scaffold:
 ## Run All Phases
 
 ```bash
-./assess.sh --workspace assessments/acme-inc/www-example-com/20260513T172500Z
+./assess.sh --workspace assessments/example-company/www-example-com/20260513T172500Z
 ```
 
 Current implemented phases use low-impact defaults and write evidence plus status files under the selected workspace. Preflight runs first and performs local Kali health checks plus one minimal reachability request after scope confirmation. Use `--skip-preflight` only when you intentionally want to bypass those checks.
@@ -107,13 +108,13 @@ Current implemented phases use low-impact defaults and write evidence plus statu
 ## Run One Phase
 
 ```bash
-./phases/02-headers.sh --workspace assessments/acme-inc/www-example-com/20260513T172500Z
+./phases/02-headers.sh --workspace assessments/example-company/www-example-com/20260513T172500Z
 ```
 
 ## Check Status
 
 ```bash
-./status.sh --workspace assessments/acme-inc/www-example-com/20260513T172500Z
+./status.sh --workspace assessments/example-company/www-example-com/20260513T172500Z
 ```
 
 Status files are written under `status/` inside the selected workspace.
@@ -121,10 +122,10 @@ Status files are written under `status/` inside the selected workspace.
 ## Generate Report
 
 ```bash
-./report.sh --workspace assessments/acme-inc/www-example-com/20260513T172500Z
+./report.sh --workspace assessments/example-company/www-example-com/20260513T172500Z
 ```
 
-Reports are written under the workspace `reports/` directory. Phase 9 normalizes validated findings, deduplicates scanner overlap, writes an evidence index, and can build a sanitized evidence package with `./phases/09-reporting.sh --workspace <workspace> --yes --archive`.
+Reports are written under the workspace `reports/` directory. `./report.sh --workspace <workspace>` generates final report artifacts. The primary human-readable final report is `reports/technical-report.md`, the executive version is `reports/executive-summary.md`, the backward-compatible single report is `reports/report.md`, and structured final findings are `reports/findings-final.json` and `reports/findings-final.csv`. Build a sanitized evidence package with `./report.sh --workspace <workspace> --archive` or `./phases/09-reporting.sh --workspace <workspace> --yes --archive`.
 
 ## Safety Model
 
@@ -133,7 +134,7 @@ Reports are written under the workspace `reports/` directory. Phase 9 normalizes
 - Evidence, logs, status files, and reports are always written under the selected workspace.
 - Secrets are not printed and credentials are not stored in logs.
 - Scanner output is evidence for review, not automatic confirmation of a vulnerability.
-- Profiles are defined as `safe`, `balanced`, `deep`, and `maintenance`; phase stubs currently enforce no active scanning.
+- Profiles are defined as `safe`, `balanced`, `deep`, and `maintenance`; implemented phases enforce low-impact defaults and block active/intrusive behavior unless explicitly implemented in a later authorized workflow.
 
 ## Authenticated Testing Roadmap
 

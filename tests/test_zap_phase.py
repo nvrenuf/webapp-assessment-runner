@@ -13,9 +13,9 @@ def make_workspace(tmp_path: Path, extra_config: str = "") -> Path:
     (workspace / "config" / "target.env").write_text(
         "\n".join(
             [
-                'TARGET_BASE_URL="https://app.example.test"',
-                'TARGET_HOST="app.example.test"',
-                'LOGIN_URL="https://app.example.test/login"',
+                'TARGET_BASE_URL="https://app.example.com"',
+                'TARGET_HOST="app.example.com"',
+                'LOGIN_URL="https://app.example.com/login"',
                 'PROFILE="test-zap-no-profile"',
                 'AUTH_ENABLED="false"',
             ]

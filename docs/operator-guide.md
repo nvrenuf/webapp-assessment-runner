@@ -46,7 +46,7 @@ Create a new workspace for each official run. This keeps evidence complete, time
 ./init-assessment.sh \
   --company "Example Company" \
   --engagement "External web baseline" \
-  --target "https://app.example.test" \
+  --target "https://app.example.com" \
   --login-path "/login" \
   --environment production \
   --profile safe \
@@ -59,31 +59,35 @@ Create a new workspace for each official run. This keeps evidence complete, time
 Record the generated workspace path, for example:
 
 ```text
-assessments/example-company/app-example-test/20260515T120000Z
+assessments/example-company/app-example-com/20260515T120000Z
 ```
 
 Use `--auth placeholder` only when you want the Phase 8 authenticated-testing scaffold. Phase 8 remains scaffold-only until real credential handling and explicit authenticated automation are implemented; do not place real credentials in Git, command history, workspace `auth.env`, or reusable repository files.
 
-### 4. Run preflight
+### 4. Complete client intake before reporting
+
+`./init-assessment.sh` creates `<workspace>/config/client-intake.yaml` from `templates/client-intake.yaml.example`. The file is optional for phase execution, but operators should edit it before final reporting so Phase 9 can include approved client, scope, authorization, and reporting metadata. Do not store credentials, cookies, sessions, tokens, HAR files, or secrets in the intake file.
+
+### 5. Run preflight
 
 Preflight validates the workspace, local tool availability, DNS, and one low-impact reachability request.
 
 ```bash
-./phases/00-preflight.sh --workspace assessments/example-company/app-example-test/20260515T120000Z --yes
+./phases/00-preflight.sh --workspace assessments/example-company/app-example-com/20260515T120000Z --yes
 ```
 
 Do not skip preflight for production runs unless you already completed the same checks and documented why they are not needed.
 
-### 5. Run phases individually
+### 6. Run phases individually
 
 Running phases individually gives the operator control over timing, monitoring, and evidence review:
 
 ```bash
-./phases/01-tls.sh --workspace assessments/example-company/app-example-test/20260515T120000Z --yes
-./phases/02-headers.sh --workspace assessments/example-company/app-example-test/20260515T120000Z --yes
-./phases/03-nikto.sh --workspace assessments/example-company/app-example-test/20260515T120000Z --yes --verbose
-./phases/04-nmap.sh --workspace assessments/example-company/app-example-test/20260515T120000Z --yes --verbose
-./phases/05-nuclei.sh --workspace assessments/example-company/app-example-test/20260515T120000Z --yes --verbose
+./phases/01-tls.sh --workspace assessments/example-company/app-example-com/20260515T120000Z --yes
+./phases/02-headers.sh --workspace assessments/example-company/app-example-com/20260515T120000Z --yes
+./phases/03-nikto.sh --workspace assessments/example-company/app-example-com/20260515T120000Z --yes --verbose
+./phases/04-nmap.sh --workspace assessments/example-company/app-example-com/20260515T120000Z --yes --verbose
+./phases/05-nuclei.sh --workspace assessments/example-company/app-example-com/20260515T120000Z --yes --verbose
 ```
 
 `assess.sh` runs the unauthenticated baseline phases and final validation. Phase 8 remains an explicit operator decision and should be run only when authenticated testing is in scope:
@@ -94,21 +98,21 @@ Running phases individually gives the operator control over timing, monitoring, 
 
 Individual phase execution is preferred when the operator needs approval gates, manual review between phases, or close monitoring of long-running tools.
 
-### 6. Monitor long-running phases
+### 7. Monitor long-running phases
 
 Use `--verbose` for phases that support live progress output or heartbeat logging, especially Nikto, Nmap, and Nuclei. Verbose mode helps answer: is the tool still running, which evidence file is growing, and what command should be tailed?
 
 Useful monitoring commands include:
 
 ```bash
-./status.sh --workspace assessments/example-company/app-example-test/20260515T120000Z
-find assessments/example-company/app-example-test/20260515T120000Z/status -type f -maxdepth 1 -print
-find assessments/example-company/app-example-test/20260515T120000Z/evidence -type f -maxdepth 3 -print
+./status.sh --workspace assessments/example-company/app-example-com/20260515T120000Z
+find assessments/example-company/app-example-com/20260515T120000Z/status -type f -maxdepth 1 -print
+find assessments/example-company/app-example-com/20260515T120000Z/evidence -type f -maxdepth 3 -print
 ```
 
 For Nikto and Nuclei, phase output prints the console or heartbeat file that can be tailed.
 
-### 7. Validate and normalize findings
+### 8. Validate and normalize findings
 
 Scanner results are not final findings. Review evidence, then use direct validation checks in Phase 7 to confirm, contradict, or downgrade observations. Report normalization in Phase 9 should deduplicate related observations and roll granular scanner output into report-friendly findings.
 
@@ -118,19 +122,19 @@ Examples:
 - Missing browser headers can roll up into one `Missing Recommended Browser Security Headers` finding.
 - Scanner observations that cannot be reproduced should remain informational or be omitted from the final report.
 
-### 8. Generate reports
+### 9. Generate reports
 
 ```bash
-./report.sh --workspace assessments/example-company/app-example-test/20260515T120000Z
+./report.sh --workspace assessments/example-company/app-example-com/20260515T120000Z
 ```
 
 To run Phase 9 directly and build a sanitized evidence package:
 
 ```bash
-./phases/09-reporting.sh --workspace assessments/example-company/app-example-test/20260515T120000Z --yes --archive
+./phases/09-reporting.sh --workspace assessments/example-company/app-example-com/20260515T120000Z --yes --archive
 ```
 
-Reports are written under the workspace `reports/` directory. Keep reports, archives, and raw evidence out of Git.
+`./report.sh --workspace <workspace>` generates final report artifacts under the workspace `reports/` directory. The primary human-readable final report is `reports/technical-report.md`, the executive version is `reports/executive-summary.md`, the backward-compatible single report is `reports/report.md`, and structured final findings are `reports/findings-final.json` and `reports/findings-final.csv`. Create the evidence package with `./report.sh --workspace <workspace> --archive` or `./phases/09-reporting.sh --workspace <workspace> --yes --archive`. Keep reports, archives, and raw evidence out of Git.
 
 ## Common options
 

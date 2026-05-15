@@ -119,6 +119,7 @@ ensure_workspace_dirs "${WORKSPACE}"
 TARGET_ENV="${WORKSPACE}/config/target.env"
 SCOPE_YAML="${WORKSPACE}/config/scope.yaml"
 AUTH_ENV="${WORKSPACE}/config/auth.env"
+CLIENT_INTAKE_YAML="${WORKSPACE}/config/client-intake.yaml"
 METADATA_JSON="${WORKSPACE}/config/metadata.json"
 
 cat > "${TARGET_ENV}" <<EOF
@@ -148,6 +149,7 @@ sed \
 
 cp "${SCRIPT_DIR}/templates/auth.env.example" "${AUTH_ENV}"
 chmod 0600 "${AUTH_ENV}"
+cp "${SCRIPT_DIR}/templates/client-intake.yaml.example" "${CLIENT_INTAKE_YAML}"
 
 cat > "${METADATA_JSON}" <<EOF
 {
@@ -173,4 +175,5 @@ cat > "${METADATA_JSON}" <<EOF
 }
 EOF
 
+info "Client intake template created at ${CLIENT_INTAKE_YAML}. Edit it before final reporting when client-approved context is available." >&2
 printf '%s\n' "${WORKSPACE}"

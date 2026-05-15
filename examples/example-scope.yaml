@@ -1,8 +1,8 @@
-target: "https://www.example.test"
+target: "https://www.example.com"
 environment: "staging"
 login_path: "/login"
 allowed:
-  - "https://www.example.test"
+  - "https://www.example.com"
 excluded:
   - "destructive testing"
   - "denial of service"

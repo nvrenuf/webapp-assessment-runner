@@ -13,9 +13,9 @@ def make_workspace(tmp_path: Path, fakebin: Path) -> Path:
     (workspace / "config" / "target.env").write_text(
         "\n".join(
             [
-                'TARGET_BASE_URL="https://app.example.test"',
-                'TARGET_HOST="app.example.test"',
-                'LOGIN_URL="https://app.example.test/login"',
+                'TARGET_BASE_URL="https://app.example.com"',
+                'TARGET_HOST="app.example.com"',
+                'LOGIN_URL="https://app.example.com/login"',
                 'PROFILE="test-phase7-no-profile"',
                 'AUTH_ENABLED="false"',
             ]
@@ -51,7 +51,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 if [[ "${head_only}" == "true" ]]; then
-  printf 'HTTP/2 301\r\nlocation: https://app.example.test/login\r\n\r\nHTTP/2 200\r\ncontent-type: text/html\r\n\r\n'
+  printf 'HTTP/2 301\r\nlocation: https://app.example.com/login\r\n\r\nHTTP/2 200\r\ncontent-type: text/html\r\n\r\n'
   exit 0
 fi
 if [[ -n "${headers_file}" ]]; then
@@ -62,7 +62,7 @@ if [[ -n "${headers_file}" ]]; then
     printf 'cache-control: no-store\r\n'
     printf 'x-frame-options: DENY\r\n'
     printf 'vary: Origin\r\n'
-    if [[ "${origin}" == "Origin: https://evil.example" ]]; then
+    if [[ "${origin}" == "Origin: https://evil.example.com" ]]; then
       printf 'access-control-allow-origin: https://trusted.example\r\n'
       printf 'access-control-allow-credentials: true\r\n'
     fi
@@ -144,7 +144,7 @@ def test_phase7_groups_direct_validation_findings(tmp_path: Path) -> None:
     cors = finding(findings, "CORS arbitrary origin reflection")
     assert cors["severity"] == "informational"
     assert cors["status"] == "not_observed"
-    assert "https://evil.example was not reflected" in cors["evidence"]
+    assert "https://evil.example.com was not reflected" in cors["evidence"]
 
     hsts = finding(findings, "HSTS max-age below one-year hardening baseline")
     assert hsts["severity"] == "low"

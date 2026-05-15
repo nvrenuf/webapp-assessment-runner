@@ -93,6 +93,114 @@ def parse_env(path: Path) -> dict[str, str]:
     return result
 
 
+
+def parse_shallow_yaml(path: Path) -> dict[str, dict[str, str]]:
+    """Parse the simple two-level client intake YAML template.
+
+    This is intentionally conservative and supports only section headers and
+    scalar ``key: value`` pairs. It avoids a PyYAML dependency for Phase 9.
+    """
+    parsed: dict[str, dict[str, str]] = {}
+    if not path.exists():
+        return parsed
+    current: str | None = None
+    for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = raw.rstrip()
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if not line.startswith((" ", "\t")) and stripped.endswith(":"):
+            section = stripped[:-1].strip()
+            if re.fullmatch(r"[A-Za-z0-9_-]+", section):
+                current = section
+                parsed.setdefault(current, {})
+            else:
+                current = None
+            continue
+        if current and line.startswith((" ", "\t")) and ":" in stripped:
+            key, value = stripped.split(":", 1)
+            key = key.strip()
+            if not re.fullmatch(r"[A-Za-z0-9_-]+", key):
+                continue
+            parsed[current][key] = clean_yaml_scalar(value.strip())
+    return parsed
+
+
+def clean_yaml_scalar(value: str) -> str:
+    if " #" in value:
+        value = value.split(" #", 1)[0].rstrip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        value = value[1:-1]
+    return value
+
+
+def is_placeholder_value(value: str) -> bool:
+    normalized = value.strip().lower()
+    if normalized in {"", "false", "no", "none", "n/a", "na", "tbd", "todo", "placeholder"}:
+        return True
+    return any(marker in normalized for marker in ("example", "example.com", "192.0.2."))
+
+
+def load_client_intake(workspace: Path) -> dict[str, Any]:
+    path = workspace / "config" / "client-intake.yaml"
+    sections = parse_shallow_yaml(path)
+    values = [value for section in sections.values() for value in section.values()]
+    placeholder_only = bool(path.exists()) and (not values or all(is_placeholder_value(value) for value in values))
+    template_path = Path(__file__).resolve().parents[1] / "templates" / "client-intake.yaml.example"
+    try:
+        if path.exists() and template_path.exists() and path.read_text(encoding="utf-8", errors="replace") == template_path.read_text(encoding="utf-8", errors="replace"):
+            placeholder_only = True
+    except OSError:
+        pass
+    return {
+        "found": path.exists(),
+        "path": "config/client-intake.yaml",
+        "placeholder_only": placeholder_only,
+        "sections": sections,
+    }
+
+
+def intake_get(intake: dict[str, Any], section: str, key: str, default: str = "") -> str:
+    sections = intake.get("sections")
+    if not isinstance(sections, dict):
+        return default
+    section_data = sections.get(section)
+    if not isinstance(section_data, dict):
+        return default
+    value = section_data.get(key, default)
+    return str(value) if value is not None else default
+
+
+def client_intake_rows(intake: dict[str, Any]) -> list[list[str]]:
+    fields = [
+        ("Client", "engagement", "client_name"),
+        ("Engagement", "engagement", "engagement_name"),
+        ("Assessment type", "engagement", "assessment_type"),
+        ("Business owner", "engagement", "business_owner"),
+        ("Technical contact", "engagement", "technical_contact"),
+        ("Security contact", "engagement", "security_contact"),
+        ("Report recipient", "engagement", "report_recipient"),
+        ("Requested dates", "engagement", "requested_start_date"),
+        ("Target base URL", "scope", "target_base_url"),
+        ("Testing window", "scope", "testing_window"),
+        ("Traffic constraints", "scope", "rate_limits_or_traffic_constraints"),
+        ("Authorization reference", "authorization", "authorization_reference"),
+        ("Authorized by", "authorization", "authorized_by"),
+        ("Allowed testing", "authorization", "allowed_testing_types"),
+        ("Prohibited testing", "authorization", "prohibited_testing_types"),
+        ("Credentials available", "authenticated_testing", "credentials_available"),
+        ("Role testing required", "authenticated_testing", "role_testing_required"),
+        ("Report classification", "reporting", "report_classification"),
+        ("Delivery format", "reporting", "delivery_format"),
+        ("Due date", "reporting", "due_date"),
+    ]
+    rows: list[list[str]] = []
+    for label, section, key in fields:
+        value = intake_get(intake, section, key)
+        if value:
+            rows.append([label, value])
+    return rows
+
 def as_bool(value: Any) -> bool:
     return str(value).strip().lower() in {"1", "true", "yes", "on", "placeholder", "enabled"}
 
@@ -474,6 +582,11 @@ def write_reports(workspace: Path, reports_dir: Path, metadata: dict[str, Any], 
     summary_rows = [[severity.title(), str(counts[severity])] for severity in SEVERITIES]
     finding_rows = [[f["id"], f["title"], f["severity"], f["status"], f["affected_url"]] for f in finals]
     source_file_rows = [[item["phase"], item["path"], item["status"]] for item in source_files]
+    client_intake = metadata.get("client_intake") if isinstance(metadata.get("client_intake"), dict) else {"found": False, "placeholder_only": False, "sections": {}}
+    intake_status = "found" if client_intake.get("found") else "missing"
+    if client_intake.get("found") and client_intake.get("placeholder_only"):
+        intake_status = "found; appears placeholder-only"
+    intake_rows = client_intake_rows(client_intake)
 
     executive = [
         f"# Executive Summary: {title}",
@@ -487,7 +600,11 @@ def write_reports(workspace: Path, reports_dir: Path, metadata: dict[str, Any], 
         f"- Profile: {metadata.get('profile', '')}",
         f"- Tester: {metadata.get('tester', '')}",
         f"- Run ID: {run_id}",
+        f"- Client intake: {intake_status}",
         "",
+        "## Client Intake Highlights",
+        "",
+        md_table(["Field", "Value"], intake_rows) if intake_rows else "_Client intake was not found or contains no parsed values._\n",
         "## Scope",
         "",
         f"Assessment evidence was generated from the selected workspace for `{target}`. Phase 9 did not perform network testing.",
@@ -550,7 +667,11 @@ def write_reports(workspace: Path, reports_dir: Path, metadata: dict[str, Any], 
         f"- Profile: {metadata.get('profile', '')}",
         f"- Tester: {metadata.get('tester', '')}",
         f"- Run ID: {run_id}",
+        f"- Client intake: {intake_status}",
         "",
+        "## Client Intake",
+        "",
+        md_table(["Field", "Value"], intake_rows) if intake_rows else "_Client intake was not found or contains no parsed values._\n",
         "## 2. Scope and Target",
         "",
         f"The report covers evidence in `{workspace}` for `{target}`. Scope details are available in `config/scope.yaml` when present.",
@@ -605,6 +726,8 @@ def write_reports(workspace: Path, reports_dir: Path, metadata: dict[str, Any], 
         f"- Workspace: `{workspace}`",
         f"- Archive created: {str(archive_created).lower()}",
         f"- Archive path: `{archive_path or ''}`",
+        f"- Client intake found: {str(bool(client_intake.get('found'))).lower()}",
+        f"- Client intake appears placeholder-only: {str(bool(client_intake.get('placeholder_only'))).lower()}",
         "",
         "## Source Files",
         "",
@@ -692,6 +815,7 @@ def generate(workspace: Path, phase_run_id: str, archive: bool) -> dict[str, Any
     finals, observations, notes = normalize_final_findings(source_findings)
     limitations = limitations_from_sources(source_findings)
     statuses = phase_statuses(workspace)
+    client_intake = load_client_intake(workspace)
     report_metadata = {
         "company": metadata_value(metadata_doc, env, ["company"], ""),
         "engagement": metadata_value(metadata_doc, env, ["engagement", "engagement_name"], ""),
@@ -706,6 +830,7 @@ def generate(workspace: Path, phase_run_id: str, archive: bool) -> dict[str, Any
         "generated_at": generated_at,
         "report_version": REPORT_VERSION,
         "source_phase_statuses": statuses,
+        "client_intake": client_intake,
     }
     archive_path: str | None = None
     archive_manifest: dict[str, Any] | None = None
