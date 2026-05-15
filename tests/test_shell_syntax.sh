@@ -490,7 +490,29 @@ assert any(
 )
 PY
 
-PATH="${fakebin}:${PATH}" ./phases/03-nikto.sh --workspace "${preflight_workspace}" --yes >/dev/null
+nikto_output="${tmp_root}/nikto-output.txt"
+PATH="${fakebin}:${PATH}" ./phases/03-nikto.sh --workspace "${preflight_workspace}" --yes --verbose >"${nikto_output}"
+grep -q '^phase-3-nikto starting$' "${nikto_output}"
+grep -q "^workspace: ${preflight_workspace}$" "${nikto_output}"
+grep -q "^evidence directory: ${preflight_workspace}/evidence/phase-3-nikto$" "${nikto_output}"
+grep -q "^status file: ${preflight_workspace}/status/phase-3-nikto.status$" "${nikto_output}"
+grep -q '^target mode: login$' "${nikto_output}"
+grep -q '^  - login: https://preflight.example.test/login$' "${nikto_output}"
+grep -q '^Nikto binary: ' "${nikto_output}"
+grep -q '^NIKTO_PAUSE: 5$' "${nikto_output}"
+grep -q '^NIKTO_MAXTIME: 2h$' "${nikto_output}"
+grep -q '^NIKTO_TUNING: x6$' "${nikto_output}"
+grep -q '^raw output file: ' "${nikto_output}"
+grep -q '^console log file: ' "${nikto_output}"
+grep -q '^heartbeat file: ' "${nikto_output}"
+grep -q '^PID file: ' "${nikto_output}"
+grep -q 'tail -f ".*/nikto-login-console-[0-9]*T[0-9]*Z.txt"' "${nikto_output}"
+grep -q 'tail -f ".*/nikto-login-heartbeat-[0-9]*T[0-9]*Z.txt"' "${nikto_output}"
+grep -Fq "  ./status.sh --workspace \"${preflight_workspace}\"" "${nikto_output}"
+grep -q '^summary path: ' "${nikto_output}"
+grep -q '^findings path: ' "${nikto_output}"
+grep -q '^findings by severity:$' "${nikto_output}"
+grep -Eq '^\[[0-9]{4}-[0-9]{2}-[0-9]{2}T.* login (running|stopped) elapsed=[0-9]{2}:[0-9]{2}:[0-9]{2} raw_size=.* raw_lines=[0-9]+ console_size=.*' "${nikto_output}"
 [[ -f "${preflight_workspace}/status/phase-3-nikto.status" ]]
 [[ -f "${preflight_workspace}/status/phase-3-nikto.json" ]]
 [[ ! -e "${preflight_workspace}/status/phase-3-nikto-login.pid" ]]
@@ -499,6 +521,7 @@ PATH="${fakebin}:${PATH}" ./phases/03-nikto.sh --workspace "${preflight_workspac
 [[ -f "${preflight_workspace}/evidence/phase-3-nikto/nikto-login-heartbeat-latest.txt" ]]
 [[ -f "${preflight_workspace}/evidence/phase-3-nikto/nikto-summary.md" ]]
 [[ -f "${preflight_workspace}/evidence/phase-3-nikto/nikto-findings.json" ]]
+grep -Eq '^\[[0-9]{4}-[0-9]{2}-[0-9]{2}T.* login (running|stopped) elapsed=[0-9]{2}:[0-9]{2}:[0-9]{2} raw_size=.* raw_lines=[0-9]+ console_size=.*' "${preflight_workspace}/evidence/phase-3-nikto/nikto-login-heartbeat-latest.txt"
 first_nikto_raw_count="$(find "${preflight_workspace}/evidence/phase-3-nikto" -maxdepth 1 -type f -name 'nikto-login-[0-9]*T[0-9]*Z.txt' | wc -l)"
 [[ "${first_nikto_raw_count}" -eq 1 ]]
 grep -q '^STATUS=success$' "${preflight_workspace}/status/phase-3-nikto.status"
