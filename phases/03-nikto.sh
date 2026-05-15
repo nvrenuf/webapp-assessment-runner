@@ -8,11 +8,12 @@ source "${REPO_ROOT}/lib/evidence.sh"
 source "${REPO_ROOT}/lib/status.sh"
 
 usage() {
-  printf 'Usage: %s --workspace PATH [--yes] [--clean]\n' "$0"
+  printf 'Usage: %s --workspace PATH [--yes] [--clean] [--verbose]\n' "$0"
 }
 
 YES="false"
 CLEAN="false"
+VERBOSE="${VERBOSE:-false}"
 WORKSPACE=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -27,6 +28,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --clean)
       CLEAN="true"
+      shift
+      ;;
+    --verbose)
+      VERBOSE="true"
       shift
       ;;
     -h|--help)
@@ -57,6 +62,8 @@ RAW_FILES=()
 CONSOLE_FILES=()
 HEARTBEAT_FILES=()
 SCANNED_TARGETS=()
+SUMMARY_PATH=""
+FINDINGS_PATH=""
 
 write_nikto_status_file() {
   local status="$1"
@@ -148,6 +155,7 @@ NIKTO_PAUSE="${NIKTO_PAUSE:-2}"
 NIKTO_MAXTIME="${NIKTO_MAXTIME:-2h}"
 NIKTO_TUNING="${NIKTO_TUNING:-x6}"
 NIKTO_TARGET_MODE="${NIKTO_TARGET_MODE:-login}"
+NIKTO_HEARTBEAT_INTERVAL="${NIKTO_HEARTBEAT_INTERVAL:-60}"
 
 case "${NIKTO_TARGET_MODE}" in
   login|base|both) ;;
@@ -182,19 +190,112 @@ check_pid_file() {
   rm -f "${pid_file}"
 }
 
+human_size() {
+  local file="$1"
+  if [[ ! -e "${file}" ]]; then
+    printf '0'
+    return 0
+  fi
+  du -h "${file}" 2>/dev/null | awk '{print $1}'
+}
+
+line_count_if_available() {
+  local file="$1"
+  if [[ ! -f "${file}" ]]; then
+    printf '0'
+    return 0
+  fi
+  wc -l < "${file}" 2>/dev/null | tr -d '[:space:]'
+}
+
+format_elapsed() {
+  local elapsed="$1"
+  printf '%02d:%02d:%02d' "$((elapsed / 3600))" "$(((elapsed % 3600) / 60))" "$((elapsed % 60))"
+}
+
+emit_heartbeat_line() {
+  local label="$1"
+  local scan_pid="$2"
+  local started_epoch="$3"
+  local raw_file="$4"
+  local console_file="$5"
+  local heartbeat_file="$6"
+  local now_epoch elapsed alive raw_size raw_lines console_size line
+  now_epoch="$(date -u '+%s')"
+  elapsed="$((now_epoch - started_epoch))"
+  if kill -0 "${scan_pid}" >/dev/null 2>&1; then
+    alive="running"
+  else
+    alive="stopped"
+  fi
+  raw_size="$(human_size "${raw_file}")"
+  raw_lines="$(line_count_if_available "${raw_file}")"
+  console_size="$(human_size "${console_file}")"
+  line="[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] ${label} ${alive} elapsed=$(format_elapsed "${elapsed}") raw_size=${raw_size} raw_lines=${raw_lines} console_size=${console_size}"
+  printf '%s\n' "${line}" >> "${heartbeat_file}"
+  if [[ "${VERBOSE}" == "true" ]]; then
+    printf '%s\n' "${line}"
+  fi
+}
+
 start_heartbeat() {
-  local scan_pid="$1"
-  local heartbeat_file="$2"
+  local label="$1"
+  local scan_pid="$2"
+  local started_epoch="$3"
+  local raw_file="$4"
+  local console_file="$5"
+  local heartbeat_file="$6"
+  emit_heartbeat_line "${label}" "${scan_pid}" "${started_epoch}" "${raw_file}" "${console_file}" "${heartbeat_file}"
   (
     while kill -0 "${scan_pid}" >/dev/null 2>&1; do
-      date -u '+%Y-%m-%dT%H:%M:%SZ'
-      for _ in $(seq 1 60); do
+      for _ in $(seq 1 "${NIKTO_HEARTBEAT_INTERVAL}"); do
         kill -0 "${scan_pid}" >/dev/null 2>&1 || exit 0
         sleep 1
       done
+      kill -0 "${scan_pid}" >/dev/null 2>&1 || exit 0
+      emit_heartbeat_line "${label}" "${scan_pid}" "${started_epoch}" "${raw_file}" "${console_file}" "${heartbeat_file}"
     done
-  ) >> "${heartbeat_file}" &
+  ) &
   ACTIVE_HEARTBEAT_PID="$!"
+}
+
+print_phase_start() {
+  local status_file="${WORKSPACE}/status/${PHASE_NAME}.status"
+  printf '%s starting\n' "${PHASE_NAME}"
+  printf 'workspace: %s\n' "${WORKSPACE}"
+  printf 'evidence directory: %s\n' "${OUT}"
+  printf 'status file: %s\n' "${status_file}"
+  printf 'target mode: %s\n' "${NIKTO_TARGET_MODE}"
+  printf 'targets:\n'
+  local target label url
+  for target in "${TARGETS[@]}"; do
+    label="${target%%=*}"
+    url="${target#*=}"
+    printf '  - %s: %s\n' "${label}" "${url}"
+  done
+  printf 'Nikto binary: %s\n' "${NIKTO_BIN}"
+  printf 'NIKTO_PAUSE: %s\n' "${NIKTO_PAUSE}"
+  printf 'NIKTO_MAXTIME: %s\n' "${NIKTO_MAXTIME}"
+  printf 'NIKTO_TUNING: %s\n' "${NIKTO_TUNING}"
+}
+
+print_target_start() {
+  local label="$1"
+  local url="$2"
+  local raw_out="$3"
+  local console_out="$4"
+  local heartbeat_out="$5"
+  local pid_file="$6"
+  printf 'Nikto target starting: %s\n' "${label}"
+  printf 'target URL: %s\n' "${url}"
+  printf 'raw output file: %s\n' "${raw_out}"
+  printf 'console log file: %s\n' "${console_out}"
+  printf 'heartbeat file: %s\n' "${heartbeat_out}"
+  printf 'PID file: %s\n' "${pid_file}"
+  printf 'monitor commands:\n'
+  printf '  tail -f "%s"\n' "${console_out}"
+  printf '  tail -f "%s"\n' "${heartbeat_out}"
+  printf '  ./status.sh --workspace "%s"\n' "${WORKSPACE}"
 }
 
 run_nikto_target() {
@@ -209,15 +310,18 @@ run_nikto_target() {
 
   check_pid_file "${pid_file}"
   : > "${heartbeat_out}"
+  print_target_start "${label}" "${url}" "${raw_out}" "${console_out}" "${heartbeat_out}" "${pid_file}"
   printf 'Starting Nikto target %s (%s) at %s\n' "${label}" "${url}" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" > "${console_out}"
 
+  local started_epoch
+  started_epoch="$(date -u '+%s')"
   set +e
   "${NIKTO_BIN}" -h "${url}" -ssl -Tuning "${NIKTO_TUNING}" -Pause "${NIKTO_PAUSE}" -maxtime "${NIKTO_MAXTIME}" -nointeractive -Format txt -output "${raw_out}" >> "${console_out}" 2>&1 &
   ACTIVE_SCAN_PID="$!"
   set -e
   printf '%s\n' "${ACTIVE_SCAN_PID}" > "${pid_file}"
   ACTIVE_PID_FILE="${pid_file}"
-  start_heartbeat "${ACTIVE_SCAN_PID}" "${heartbeat_out}"
+  start_heartbeat "${label}" "${ACTIVE_SCAN_PID}" "${started_epoch}" "${raw_out}" "${console_out}" "${heartbeat_out}"
 
   set +e
   wait "${ACTIVE_SCAN_PID}"
@@ -266,6 +370,8 @@ case "${NIKTO_TARGET_MODE}" in
     ;;
 esac
 
+print_phase_start
+
 NIKTO_STATUS="success"
 NIKTO_MESSAGE="Nikto completed."
 phase_exit=0
@@ -287,7 +393,9 @@ for target in "${TARGETS[@]}"; do
   fi
 done
 
-parser_args=("${REPO_ROOT}/tools/parse-nikto.py" --output "${OUT}/nikto-findings.json")
+FINDINGS_PATH="${OUT}/nikto-findings.json"
+SUMMARY_PATH="${OUT}/nikto-summary.md"
+parser_args=("${REPO_ROOT}/tools/parse-nikto.py" --output "${FINDINGS_PATH}")
 for raw_file in "${RAW_FILES[@]}"; do
   parser_args+=(--input "${raw_file}")
 done
@@ -295,7 +403,7 @@ parser_args+=(--target "base=${TARGET_BASE_URL}" --target "login=${LOGIN_URL}")
 "${PYTHON_BIN:-python3}" "${parser_args[@]}"
 
 write_summary() {
-  local summary_file="${OUT}/nikto-summary.md"
+  local summary_file="${SUMMARY_PATH}"
   "${PYTHON_BIN:-python3}" - "${OUT}" "${PHASE_RUN_ID}" "${STARTED_UTC}" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "${NIKTO_TARGET_MODE}" "${NIKTO_PAUSE}" "${NIKTO_MAXTIME}" "${NIKTO_TUNING}" "${NIKTO_STATUS}" "${NIKTO_MESSAGE}" "${TARGET_RESULTS[*]}" "${SCANNED_TARGETS[*]}" "${RAW_FILES[*]}" "${CONSOLE_FILES[*]}" > "${summary_file}" <<'PY'
 import json
 import sys
@@ -383,5 +491,32 @@ elif [[ "${NIKTO_STATUS}" == "completed_with_warnings" ]]; then
   :
 fi
 
+severity_counts() {
+  "${PYTHON_BIN:-python3}" - "${FINDINGS_PATH}" <<'PY'
+import json
+import sys
+from collections import Counter
+from pathlib import Path
+path = Path(sys.argv[1])
+try:
+    findings = json.loads(path.read_text(encoding="utf-8"))
+except FileNotFoundError:
+    findings = []
+counts = Counter(item.get("severity", "unknown") for item in findings)
+for severity in ["critical", "high", "medium", "low", "informational", "unknown"]:
+    if counts.get(severity, 0) or severity in {"medium", "low", "informational"}:
+        print(f"{severity}: {counts.get(severity, 0)}")
+PY
+}
+
 printf 'phase-3-nikto completed (%s)\n' "${NIKTO_STATUS}"
+printf 'final status: %s\n' "${NIKTO_STATUS}"
+printf 'exit code: %s\n' "${phase_exit}"
+printf 'summary path: %s\n' "${SUMMARY_PATH}"
+printf 'findings path: %s\n' "${FINDINGS_PATH}"
+printf 'evidence directory: %s\n' "${OUT}"
+printf 'findings by severity:\n'
+while IFS= read -r severity_line; do
+  printf '  - %s\n' "${severity_line}"
+done < <(severity_counts)
 exit "${phase_exit}"
