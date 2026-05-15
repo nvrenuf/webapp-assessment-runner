@@ -427,15 +427,28 @@ def make_nuclei_workspace(tmp_path: Path, fake_nuclei: Path) -> Path:
     return workspace
 
 
-def write_fake_nuclei(path: Path) -> None:
+def write_fake_nuclei(path: Path, help_mode: str = "jsonl-export") -> None:
+    if help_mode == "jsonl-export":
+        help_text = "  -jsonl-export string  export jsonl results to file\n  -jsonl  write json lines\n"
+    elif help_mode == "jsonl-o":
+        help_text = "  -jsonl  write json lines\n  -o string  output file\n"
+    elif help_mode == "none":
+        help_text = "  -silent  show only results\n"
+    else:
+        raise ValueError(f"unknown help mode: {help_mode}")
     path.write_text(
         """#!/usr/bin/env bash
 set -Eeuo pipefail
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  cat <<'EOF'
+__HELP_TEXT__EOF
+  exit 0
+fi
 out=""
 targets=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -o)
+    -o|-jsonl-export)
       out="$2"
       shift 2
       ;;
@@ -455,7 +468,7 @@ cat > "${out}" <<'EOF'
 {"template-id":"missing-x-frame-options","info":{"name":"Missing X-Frame-Options","severity":"low","tags":"headers,misconfig"},"matched-at":"https://app.example.test","extracted-results":["X-Frame-Options header is missing"]}
 {"template-id":"tech-detect:nginx","info":{"name":"Nginx Technology Detection","severity":"info","tags":"tech"},"matched-at":"https://app.example.test","extracted-results":["nginx"]}
 EOF
-""",
+""".replace("__HELP_TEXT__", help_text),
         encoding="utf-8",
     )
     path.chmod(0o755)
@@ -466,6 +479,16 @@ def run_nuclei_phase(workspace: Path, *extra: str) -> subprocess.CompletedProces
         ["bash", "phases/05-nuclei.sh", "--workspace", str(workspace), "--yes", *extra],
         cwd=ROOT,
         check=True,
+        text=True,
+        capture_output=True,
+    )
+
+
+def run_nuclei_phase_unchecked(workspace: Path, *extra: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["bash", "phases/05-nuclei.sh", "--workspace", str(workspace), "--yes", *extra],
+        cwd=ROOT,
+        check=False,
         text=True,
         capture_output=True,
     )
@@ -488,7 +511,11 @@ def test_phase_5_nuclei_mocked_rerun_and_clean(tmp_path: Path) -> None:
     findings = json.loads(findings_path.read_text(encoding="utf-8"))
     assert any(item["title"] == "Missing X-Frame-Options" for item in findings)
     assert any(item["title"] == "Nginx Technology Detection" for item in findings)
-    assert "STATUS=success" in (workspace / "status" / "phase-5-nuclei.status").read_text(encoding="utf-8")
+    status_text = (workspace / "status" / "phase-5-nuclei.status").read_text(encoding="utf-8")
+    assert "STATUS=success" in status_text
+    assert "NUCLEI_JSON_MODE=jsonl-export" in status_text
+    assert "Selected Nuclei JSONL output mode: jsonl-export" in (evidence / "nuclei-console-latest.txt").read_text(encoding="utf-8")
+    assert "NUCLEI_JSON_MODE: jsonl-export" in (evidence / "nuclei-summary.md").read_text(encoding="utf-8")
     first_raw = sorted(evidence.glob("nuclei-results-[0-9]*T[0-9]*Z.jsonl"))
     assert len(first_raw) == 1
 
@@ -504,3 +531,39 @@ def test_phase_5_nuclei_mocked_rerun_and_clean(tmp_path: Path) -> None:
     assert (evidence / "nuclei-console-latest.txt").exists()
     assert (evidence / "nuclei-summary.md").exists()
     assert (evidence / "nuclei-findings.json").exists()
+
+
+
+def test_phase_5_nuclei_jsonl_dash_o_mode(tmp_path: Path) -> None:
+    fake_nuclei = tmp_path / "fake-nuclei-jsonl-o"
+    write_fake_nuclei(fake_nuclei, "jsonl-o")
+    workspace = make_nuclei_workspace(tmp_path, fake_nuclei)
+
+    run_nuclei_phase(workspace)
+
+    evidence = workspace / "evidence" / "phase-5-nuclei"
+    status_text = (workspace / "status" / "phase-5-nuclei.status").read_text(encoding="utf-8")
+    console_text = (evidence / "nuclei-console-latest.txt").read_text(encoding="utf-8")
+    summary_text = (evidence / "nuclei-summary.md").read_text(encoding="utf-8")
+    assert "NUCLEI_JSON_MODE=jsonl-o" in status_text
+    assert "Selected Nuclei JSONL output mode: jsonl-o" in console_text
+    assert " -jsonl -o " in console_text
+    assert "NUCLEI_JSON_MODE: jsonl-o" in summary_text
+    assert (evidence / "nuclei-results-latest.jsonl").exists()
+
+
+def test_phase_5_nuclei_missing_jsonl_support_fails(tmp_path: Path) -> None:
+    fake_nuclei = tmp_path / "fake-nuclei-no-jsonl"
+    write_fake_nuclei(fake_nuclei, "none")
+    workspace = make_nuclei_workspace(tmp_path, fake_nuclei)
+
+    result = run_nuclei_phase_unchecked(workspace)
+
+    assert result.returncode != 0
+    assert "Nuclei binary does not appear to support JSONL output required for Phase 5 parsing." in result.stderr
+    evidence = workspace / "evidence" / "phase-5-nuclei"
+    status_text = (workspace / "status" / "phase-5-nuclei.status").read_text(encoding="utf-8")
+    console_text = next(evidence.glob("nuclei-console-[0-9]*T[0-9]*Z.txt")).read_text(encoding="utf-8")
+    assert "STATUS=failure" in status_text
+    assert "NUCLEI_JSON_MODE=" in status_text
+    assert "Nuclei JSONL output mode detection failed" in console_text

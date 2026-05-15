@@ -53,6 +53,7 @@ PHASE_RUN_ID="$(date -u '+%Y%m%dT%H%M%SZ')"
 NUCLEI_STATUS="failure"
 NUCLEI_MESSAGE="Nuclei phase did not complete."
 NUCLEI_EXIT_CODE="1"
+NUCLEI_JSON_MODE=""
 STATUS_READY="false"
 
 write_nuclei_status_file() {
@@ -75,6 +76,7 @@ NUCLEI_RETRIES=${NUCLEI_RETRIES:-}
 NUCLEI_TIMEOUT=${NUCLEI_TIMEOUT:-}
 NUCLEI_TAGS=${NUCLEI_TAGS:-}
 NUCLEI_EXCLUDE_TAGS=${NUCLEI_EXCLUDE_TAGS:-}
+NUCLEI_JSON_MODE=${NUCLEI_JSON_MODE:-}
 EOF
 }
 
@@ -115,6 +117,26 @@ validate_positive_int() {
   fi
 }
 
+detect_nuclei_json_mode() {
+  local help_output
+  local help_code
+  set +e
+  help_output="$("${NUCLEI_BIN}" -h 2>&1)"
+  help_code=$?
+  set -e
+  if [[ "${VERBOSE}" == "true" ]]; then
+    printf 'Nuclei help probe exit code: %s\n' "${help_code}" >> "${CONSOLE_LOG}"
+  fi
+  if [[ "${help_output}" == *jsonl-export* ]]; then
+    NUCLEI_JSON_MODE="jsonl-export"
+  elif [[ "${help_output}" == *jsonl* ]]; then
+    NUCLEI_JSON_MODE="jsonl-o"
+  else
+    printf 'Nuclei JSONL output mode detection failed. Help probe exit code: %s\n' "${help_code}" >> "${CONSOLE_LOG}"
+    fail_nuclei "Nuclei binary does not appear to support JSONL output required for Phase 5 parsing."
+  fi
+}
+
 clean_phase_outputs() {
   find "${OUT}" -maxdepth 1 -type f \( \
     -name 'nuclei-targets-[0-9]*T[0-9]*Z.txt' -o \
@@ -141,6 +163,7 @@ print_phase_start() {
   printf 'evidence directory: %s\n' "${OUT}"
   printf 'target file: %s\n' "${TARGETS_FILE}"
   printf 'Nuclei binary: %s\n' "${NUCLEI_BIN}"
+  printf 'JSONL output mode: %s\n' "${NUCLEI_JSON_MODE}"
   printf 'rate: %s\n' "${NUCLEI_RATE}"
   printf 'concurrency: %s\n' "${NUCLEI_CONCURRENCY}"
   printf 'retries: %s\n' "${NUCLEI_RETRIES}"
@@ -152,14 +175,14 @@ print_phase_start() {
 }
 
 write_summary() {
-  "${PYTHON_BIN:-python3}" - "${OUT}" "${PHASE_RUN_ID}" "${TARGETS_FILE}" "${JSONL_OUT}" "${CONSOLE_LOG}" "${SUMMARY_PATH}" "${FINDINGS_PATH}" "${NUCLEI_RATE}" "${NUCLEI_CONCURRENCY}" "${NUCLEI_RETRIES}" "${NUCLEI_TIMEOUT}" "${NUCLEI_TAGS}" "${NUCLEI_EXCLUDE_TAGS}" "${NUCLEI_STATUS}" "${NUCLEI_MESSAGE}" <<'PY'
+  "${PYTHON_BIN:-python3}" - "${OUT}" "${PHASE_RUN_ID}" "${TARGETS_FILE}" "${JSONL_OUT}" "${CONSOLE_LOG}" "${SUMMARY_PATH}" "${FINDINGS_PATH}" "${NUCLEI_RATE}" "${NUCLEI_CONCURRENCY}" "${NUCLEI_RETRIES}" "${NUCLEI_TIMEOUT}" "${NUCLEI_TAGS}" "${NUCLEI_EXCLUDE_TAGS}" "${NUCLEI_JSON_MODE}" "${NUCLEI_STATUS}" "${NUCLEI_MESSAGE}" <<'PY'
 import json
 import sys
 from collections import Counter
 from pathlib import Path
 
 out, run_id, targets_file, jsonl_out, console_log, summary_path, findings_path = [Path(p) if i in {0,2,3,4,5,6} else p for i, p in enumerate(sys.argv[1:8])]
-rate, concurrency, retries, timeout, tags, exclude_tags, status, message = sys.argv[8:16]
+rate, concurrency, retries, timeout, tags, exclude_tags, json_mode, status, message = sys.argv[8:17]
 try:
     targets = [line.strip() for line in targets_file.read_text(encoding="utf-8").splitlines() if line.strip()]
 except FileNotFoundError:
@@ -191,7 +214,8 @@ with summary_path.open("w", encoding="utf-8") as fh:
     print(f"- NUCLEI_RETRIES: {retries}", file=fh)
     print(f"- NUCLEI_TIMEOUT: {timeout}", file=fh)
     print(f"- NUCLEI_TAGS: {tags}", file=fh)
-    print(f"- NUCLEI_EXCLUDE_TAGS: {exclude_tags}\n", file=fh)
+    print(f"- NUCLEI_EXCLUDE_TAGS: {exclude_tags}", file=fh)
+    print(f"- NUCLEI_JSON_MODE: {json_mode}\n", file=fh)
     print("## Raw Output Files\n", file=fh)
     for path in [targets_file, jsonl_out, console_log, out / "nuclei-targets-latest.txt", out / "nuclei-results-latest.jsonl", out / "nuclei-console-latest.txt"]:
         print(f"- {path.name}" + ("" if path.exists() else " (not present)"), file=fh)
@@ -290,13 +314,40 @@ printf '%s\n' "${TARGET_BASE_URL}" > "${TARGETS_FILE}"
 : > "${CONSOLE_LOG}"
 copy_latest "${TARGETS_FILE}" "${OUT}/nuclei-targets-latest.txt"
 
-print_phase_start
 printf 'Starting Nuclei phase at %s\n' "${STARTED_UTC}" >> "${CONSOLE_LOG}"
-printf 'Command: %q -l %q -tags %q -exclude-tags %q -rl %q -c %q -retries %q -timeout %q -stats -jsonl -o %q\n' \
-  "${NUCLEI_BIN}" "${TARGETS_FILE}" "${NUCLEI_TAGS}" "${NUCLEI_EXCLUDE_TAGS}" "${NUCLEI_RATE}" "${NUCLEI_CONCURRENCY}" "${NUCLEI_RETRIES}" "${NUCLEI_TIMEOUT}" "${JSONL_OUT}" >> "${CONSOLE_LOG}"
+detect_nuclei_json_mode
+printf 'Selected Nuclei JSONL output mode: %s\n' "${NUCLEI_JSON_MODE}" >> "${CONSOLE_LOG}"
+
+nuclei_cmd=(
+  "${NUCLEI_BIN}"
+  -l "${TARGETS_FILE}"
+  -tags "${NUCLEI_TAGS}"
+  -exclude-tags "${NUCLEI_EXCLUDE_TAGS}"
+  -rl "${NUCLEI_RATE}"
+  -c "${NUCLEI_CONCURRENCY}"
+  -retries "${NUCLEI_RETRIES}"
+  -timeout "${NUCLEI_TIMEOUT}"
+  -stats
+)
+case "${NUCLEI_JSON_MODE}" in
+  jsonl-export)
+    nuclei_cmd+=(-jsonl-export "${JSONL_OUT}")
+    ;;
+  jsonl-o)
+    nuclei_cmd+=(-jsonl -o "${JSONL_OUT}")
+    ;;
+  *)
+    fail_nuclei "Nuclei binary does not appear to support JSONL output required for Phase 5 parsing."
+    ;;
+esac
+
+print_phase_start
+printf 'Command:' >> "${CONSOLE_LOG}"
+printf ' %q' "${nuclei_cmd[@]}" >> "${CONSOLE_LOG}"
+printf '\n' >> "${CONSOLE_LOG}"
 
 set +e
-"${NUCLEI_BIN}" -l "${TARGETS_FILE}" -tags "${NUCLEI_TAGS}" -exclude-tags "${NUCLEI_EXCLUDE_TAGS}" -rl "${NUCLEI_RATE}" -c "${NUCLEI_CONCURRENCY}" -retries "${NUCLEI_RETRIES}" -timeout "${NUCLEI_TIMEOUT}" -stats -jsonl -o "${JSONL_OUT}" >> "${CONSOLE_LOG}" 2>&1
+"${nuclei_cmd[@]}" >> "${CONSOLE_LOG}" 2>&1
 nuclei_code=$?
 set -e
 printf 'Finished Nuclei phase with exit code %s at %s\n' "${nuclei_code}" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> "${CONSOLE_LOG}"
