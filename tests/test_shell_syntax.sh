@@ -13,7 +13,7 @@ workspace="$(
   ./init-assessment.sh \
     --company "Example Company" \
     --engagement "Smoke test" \
-    --target "https://app.example.test" \
+    --target "https://app.example.com" \
     --profile safe \
     --auth none \
     --tester "Test Runner" \
@@ -25,6 +25,8 @@ workspace="$(
 [[ -f "${workspace}/config/target.env" ]]
 [[ -f "${workspace}/config/scope.yaml" ]]
 [[ -f "${workspace}/config/metadata.json" ]]
+[[ -f "${workspace}/config/client-intake.yaml" ]]
+grep -q "client_name: Example Company" "${workspace}/config/client-intake.yaml"
 [[ -d "${workspace}/evidence/phase-0-preflight" ]]
 grep -q 'AUTH_MODE="none"' "${workspace}/config/target.env"
 grep -q 'AUTH_ENABLED="false"' "${workspace}/config/target.env"
@@ -41,7 +43,7 @@ for alias in none no false unauthenticated OFF; do
     ./init-assessment.sh \
       --company "Alias Company" \
       --engagement "Auth alias ${alias}" \
-      --target "https://${alias}.example.test" \
+      --target "https://${alias}.example.com" \
       --profile safe \
       --auth "${alias}" \
       --tester "Test Runner" \
@@ -59,7 +61,7 @@ for alias in placeholder yes true authenticated ON; do
     ./init-assessment.sh \
       --company "Alias Company" \
       --engagement "Auth alias ${alias}" \
-      --target "https://${alias}.example.test" \
+      --target "https://${alias}.example.com" \
       --profile safe \
       --auth "${alias}" \
       --tester "Test Runner" \
@@ -76,7 +78,7 @@ invalid_output="$(
   ./init-assessment.sh \
     --company "Alias Company" \
     --engagement "Invalid alias" \
-    --target "https://invalid.example.test" \
+    --target "https://invalid.example.com" \
     --auth potato \
     --output-root "${tmp_root}" \
     --yes 2>&1 || true
@@ -242,7 +244,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     -H)
-      if [[ "${2:-}" == "Origin: https://evil.example" ]]; then
+      if [[ "${2:-}" == "Origin: https://evil.example.com" ]]; then
         cors="true"
       fi
       shift 2
@@ -265,7 +267,7 @@ if [[ "${redirects}" == "true" ]]; then
 fi
 if [[ "${cors}" == "true" ]]; then
   if [[ "${CORS_FIXTURE:-}" == "reflect" ]]; then
-    printf 'HTTP/2 200 OK\r\nAccess-Control-Allow-Origin: https://evil.example\r\nVary: Origin\r\n\r\n' > "${headers}"
+    printf 'HTTP/2 200 OK\r\nAccess-Control-Allow-Origin: https://evil.example.com\r\nVary: Origin\r\n\r\n' > "${headers}"
   elif [[ "${CORS_FIXTURE:-}" == "wildcard-credentials" ]]; then
     printf 'HTTP/2 200 OK\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Credentials: true\r\nAccess-Control-Allow-Methods: GET, POST\r\nAccess-Control-Allow-Headers: X-Test\r\n\r\n' > "${headers}"
   else
@@ -281,7 +283,7 @@ if [[ "${url}" == *"/login" ]]; then
     printf 'Strict-Transport-Security: max-age=31536000; includeSubDomains\r\n'
     printf 'Cache-Control: no-store\r\n'
     printf 'Set-Cookie: sid=fake; HttpOnly; Secure\r\n'
-    printf 'Access-Control-Allow-Origin: https://example.test\r\n'
+    printf 'Access-Control-Allow-Origin: https://example.com\r\n'
     printf 'Vary: Origin\r\n'
     printf 'X-Test-URL: %s\r\n\r\n' "${url}"
   } > "${headers}"
@@ -334,7 +336,7 @@ done
   printf -- '+ Referrer-Policy header is not present.\n'
   printf -- '+ Uncommon header '\''Refresh'\'' found, with contents: 0; url=/next\n'
   printf -- '+ Server banner changed from '\''awselb/2.0'\'' to '\''private'\''\n'
-  printf -- '+ SSL Certificate Subject Wildcard *.example.test\n'
+  printf -- '+ SSL Certificate Subject Wildcard *.example.com\n'
   printf -- '+ ERROR: Failed to check for updates: 403 Forbidden\n'
   printf -- '+ No CGI Directories found (use '\''-C all'\'' to force check all possible dirs)\n'
 } > "${output}"
@@ -346,7 +348,7 @@ preflight_workspace="$(
   ./init-assessment.sh \
     --company "Preflight Company" \
     --engagement "Preflight success" \
-    --target "https://preflight.example.test" \
+    --target "https://preflight.example.com" \
     --login-path "/login" \
     --profile safe \
     --auth none \
@@ -449,7 +451,7 @@ second_headers_raw_count="$(find "${preflight_workspace}/evidence/phase-2-header
 second_cors_raw_count="$(find "${preflight_workspace}/evidence/phase-2-headers" -maxdepth 1 -type f -name '*-cors-headers-[0-9]*T[0-9]*Z.txt' | wc -l)"
 [[ "${second_headers_raw_count}" -gt "${first_headers_raw_count}" ]]
 [[ "${second_cors_raw_count}" -gt "${first_cors_raw_count}" ]]
-grep -q $'base\tarbitrary-origin-reflection\tobserved\tACAO=https://evil.example' "${preflight_workspace}/evidence/phase-2-headers/cors-analysis.txt"
+grep -q $'base\tarbitrary-origin-reflection\tobserved\tACAO=https://evil.example.com' "${preflight_workspace}/evidence/phase-2-headers/cors-analysis.txt"
 FINDINGS_FILE="${preflight_workspace}/evidence/phase-2-headers/headers-findings.json" python3 - <<'PY'
 import json
 import os
@@ -497,7 +499,7 @@ grep -q "^workspace: ${preflight_workspace}$" "${nikto_output}"
 grep -q "^evidence directory: ${preflight_workspace}/evidence/phase-3-nikto$" "${nikto_output}"
 grep -q "^status file: ${preflight_workspace}/status/phase-3-nikto.status$" "${nikto_output}"
 grep -q '^target mode: login$' "${nikto_output}"
-grep -q '^  - login: https://preflight.example.test/login$' "${nikto_output}"
+grep -q '^  - login: https://preflight.example.com/login$' "${nikto_output}"
 grep -q '^Nikto binary: ' "${nikto_output}"
 grep -q '^NIKTO_PAUSE: 5$' "${nikto_output}"
 grep -q '^NIKTO_MAXTIME: 2h$' "${nikto_output}"
@@ -622,7 +624,7 @@ tls_not_offered_workspace="$(
   ./init-assessment.sh \
     --company "TLS Fixtures" \
     --engagement "Legacy not offered" \
-    --target "https://tls-not-offered.example.test" \
+    --target "https://tls-not-offered.example.com" \
     --login-path "/login" \
     --profile safe \
     --auth none \
@@ -639,7 +641,7 @@ tls_not_available_workspace="$(
   ./init-assessment.sh \
     --company "TLS Fixtures" \
     --engagement "Legacy negative variants" \
-    --target "https://tls-negative.example.test" \
+    --target "https://tls-negative.example.com" \
     --login-path "/login" \
     --profile safe \
     --auth none \
@@ -655,7 +657,7 @@ tls10_offered_workspace="$(
   ./init-assessment.sh \
     --company "TLS Fixtures" \
     --engagement "TLS 1.0 offered" \
-    --target "https://tls10-offered.example.test" \
+    --target "https://tls10-offered.example.com" \
     --login-path "/login" \
     --profile safe \
     --auth none \
@@ -671,7 +673,7 @@ tls11_offered_workspace="$(
   ./init-assessment.sh \
     --company "TLS Fixtures" \
     --engagement "TLS 1.1 offered" \
-    --target "https://tls11-offered.example.test" \
+    --target "https://tls11-offered.example.com" \
     --login-path "/login" \
     --profile safe \
     --auth none \
@@ -687,7 +689,7 @@ tls_modern_workspace="$(
   ./init-assessment.sh \
     --company "TLS Fixtures" \
     --engagement "Modern TLS only" \
-    --target "https://tls-modern.example.test" \
+    --target "https://tls-modern.example.com" \
     --login-path "/login" \
     --profile safe \
     --auth none \
@@ -773,7 +775,7 @@ apt_permission_workspace="$(
   ./init-assessment.sh \
     --company "APT Permission Company" \
     --engagement "APT permission warning" \
-    --target "https://apt-permission.example.test" \
+    --target "https://apt-permission.example.com" \
     --login-path "/login" \
     --profile safe \
     --auth none \
@@ -797,7 +799,7 @@ apt_failure_workspace="$(
   ./init-assessment.sh \
     --company "APT Failure Company" \
     --engagement "APT dependency failure" \
-    --target "https://apt-failure.example.test" \
+    --target "https://apt-failure.example.com" \
     --login-path "/login" \
     --profile safe \
     --auth none \
@@ -836,7 +838,7 @@ failure_workspace="$(
   ./init-assessment.sh \
     --company "Preflight Company" \
     --engagement "Preflight failure" \
-    --target "https://failure.example.test" \
+    --target "https://failure.example.com" \
     --login-path "/login" \
     --profile safe \
     --auth none \

@@ -190,7 +190,7 @@ log_console "Console log path: ${CONSOLE_LOG}"
 set +e
 "${CURL_BIN}" -k -sS -L -D "${LOGIN_HEADERS}" -o "${LOGIN_BODY}" --max-time 30 "${LOGIN_URL}" >> "${CONSOLE_LOG}" 2>&1
 login_capture_code=$?
-"${CURL_BIN}" -k -sS -H "Origin: https://evil.example" -D "${CORS_HEADERS}" -o /dev/null --max-time 30 "${LOGIN_URL}" >> "${CONSOLE_LOG}" 2>&1
+"${CURL_BIN}" -k -sS -H "Origin: https://evil.example.com" -D "${CORS_HEADERS}" -o /dev/null --max-time 30 "${LOGIN_URL}" >> "${CONSOLE_LOG}" 2>&1
 cors_capture_code=$?
 "${CURL_BIN}" -k -sS -IL --max-time 30 "${TARGET_BASE_URL}" > "${BASE_REDIRECTS}" 2>> "${CONSOLE_LOG}"
 base_redirect_code=$?
@@ -426,18 +426,18 @@ ACAO_LOWER="$(printf '%s' "${ACAO}" | tr '[:upper:]' '[:lower:]')"
 ACAC_LOWER="$(printf '%s' "${ACAC}" | tr '[:upper:]' '[:lower:]')"
 CORS_REFLECTS="false"
 CORS_WILDCARD="false"
-[[ "${ACAO_LOWER}" == "https://evil.example" ]] && CORS_REFLECTS="true"
+[[ "${ACAO_LOWER}" == "https://evil.example.com" ]] && CORS_REFLECTS="true"
 [[ "${ACAO}" == "*" ]] && CORS_WILDCARD="true"
 if [[ "${CORS_REFLECTS}" == "true" ]]; then
   cors_severity="medium"
-  cors_evidence="Access-Control-Allow-Origin reflected https://evil.example"
+  cors_evidence="Access-Control-Allow-Origin reflected https://evil.example.com"
   if [[ "${ACAC_LOWER}" == "true" ]]; then
     cors_severity="high"
     cors_evidence+=" and Access-Control-Allow-Credentials was true"
   fi
   add_finding "CORS arbitrary origin reflection" "${cors_severity}" "confirmed" "cors" "${LOGIN_URL}" \
     "${cors_evidence}." \
-    "A direct login request with Origin: https://evil.example caused the response to reflect that arbitrary origin." \
+    "A direct login request with Origin: https://evil.example.com caused the response to reflect that arbitrary origin." \
     "Replace origin reflection with an explicit allowlist; do not combine arbitrary origins or wildcard ACAO with credentials."
 else
   cors_evidence="ACAO=${ACAO:-missing}; ACAC=${ACAC:-missing}"
@@ -448,7 +448,7 @@ else
       "Use an explicit origin allowlist and do not permit credentials for arbitrary origins."
   else
     add_finding "CORS arbitrary origin reflection" "informational" "not_observed" "cors" "${LOGIN_URL}" \
-      "${cors_evidence}; https://evil.example was not reflected." \
+      "${cors_evidence}; https://evil.example.com was not reflected." \
       "A direct CORS validation request did not observe arbitrary origin reflection." \
       "Continue using an explicit origin allowlist and avoid credentials for untrusted origins."
   fi
@@ -591,7 +591,7 @@ PY
   printf -- '- Validated missing browser security headers on the final login response.\n'
   printf -- '- Validated HSTS presence and max-age hardening baseline.\n'
   printf -- '- Validated sensitive-page cache controls.\n'
-  printf -- '- Sent a single direct CORS request with Origin: https://evil.example.\n'
+  printf -- '- Sent a single direct CORS request with Origin: https://evil.example.com.\n'
   printf -- '- Captured base and login redirect chains.\n'
   printf -- '- Ran direct OpenSSL TLS 1.2, TLS 1.3, and restricted NULL/aNULL/eNULL TLS 1.2 checks.\n\n'
   printf '## Header Extraction\n\n'

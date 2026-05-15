@@ -12,9 +12,9 @@ def make_workspace(tmp_path: Path, auth_mode: str = "none", auth_enabled: str = 
     (workspace / "config" / "target.env").write_text(
         "\n".join(
             [
-                'TARGET_BASE_URL="https://app.example.test"',
-                'TARGET_HOST="app.example.test"',
-                'LOGIN_URL="https://app.example.test/login"',
+                'TARGET_BASE_URL="https://app.example.com"',
+                'TARGET_HOST="app.example.com"',
+                'LOGIN_URL="https://app.example.com/login"',
                 'PROFILE="test-phase8-no-profile"',
                 f'AUTH_MODE="{auth_mode}"',
                 f'AUTH_ENABLED="{auth_enabled}"',

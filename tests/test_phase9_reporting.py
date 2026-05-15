@@ -21,9 +21,9 @@ def make_workspace(tmp_path: Path) -> Path:
     (workspace / "config" / "target.env").write_text(
         '\n'.join(
             [
-                'TARGET_BASE_URL="https://app.example.test"',
-                'TARGET_HOST="app.example.test"',
-                'LOGIN_URL="https://app.example.test/login"',
+                'TARGET_BASE_URL="https://app.example.com"',
+                'TARGET_HOST="app.example.com"',
+                'LOGIN_URL="https://app.example.com/login"',
                 'PROFILE="safe"',
                 'AUTH_MODE="none"',
                 'AUTH_ENABLED="false"',
@@ -37,7 +37,7 @@ def make_workspace(tmp_path: Path) -> Path:
             {
                 "company": "Example Company",
                 "engagement": "Example engagement",
-                "target": "https://app.example.test",
+                "target": "https://app.example.com",
                 "environment": "test",
                 "profile": "safe",
                 "auth_mode": "none",
@@ -48,7 +48,7 @@ def make_workspace(tmp_path: Path) -> Path:
         ),
         encoding="utf-8",
     )
-    (workspace / "config" / "scope.yaml").write_text("target: https://app.example.test\n", encoding="utf-8")
+    (workspace / "config" / "scope.yaml").write_text("target: https://app.example.com\n", encoding="utf-8")
     (workspace / "status" / "phase-7-validation.status").write_text("STATUS=success\nMESSAGE='ok'\n", encoding="utf-8")
     (workspace / "evidence" / "phase-7-validation" / "validation-login-headers-latest.txt").write_text("headers\n", encoding="utf-8")
     (workspace / "evidence" / "phase-7-validation" / "validation-summary.md").write_text("summary\n", encoding="utf-8")
@@ -64,7 +64,7 @@ def write_fixture_findings(workspace: Path) -> None:
             "status": "confirmed",
             "source": "phase-7-validation",
             "category": "csp",
-            "url": "https://app.example.test/login",
+            "url": "https://app.example.com/login",
             "evidence": "unsafe-inline, unsafe-eval, and missing form-action were observed.",
             "description": "CSP contains permissive directives.",
             "recommendation": "Tighten CSP directives.",
@@ -76,7 +76,7 @@ def write_fixture_findings(workspace: Path) -> None:
             "status": "confirmed",
             "source": "phase-7-validation",
             "category": "headers",
-            "url": "https://app.example.test/login",
+            "url": "https://app.example.com/login",
             "evidence": "X-Content-Type-Options, Referrer-Policy, and Permissions-Policy missing.",
             "description": "Browser hardening headers are missing.",
             "recommendation": "Add browser security headers.",
@@ -88,7 +88,7 @@ def write_fixture_findings(workspace: Path) -> None:
             "status": "confirmed",
             "source": "phase-7-validation",
             "category": "tls",
-            "url": "https://app.example.test/login",
+            "url": "https://app.example.com/login",
             "evidence": "strict-transport-security max-age=15768000.",
             "description": "HSTS max-age is below one year.",
             "recommendation": "Increase max-age after coverage review.",
@@ -100,8 +100,8 @@ def write_fixture_findings(workspace: Path) -> None:
             "status": "not_observed",
             "source": "phase-7-validation",
             "category": "cors",
-            "url": "https://app.example.test/login",
-            "evidence": "https://evil.example was not reflected.",
+            "url": "https://app.example.com/login",
+            "evidence": "https://evil.example.com was not reflected.",
             "description": "CORS reflection was not observed.",
             "recommendation": "Continue least privilege CORS.",
         },
@@ -112,7 +112,7 @@ def write_fixture_findings(workspace: Path) -> None:
             "status": "not_confirmed",
             "source": "phase-7-validation",
             "category": "tls",
-            "url": "https://app.example.test",
+            "url": "https://app.example.com",
             "evidence": "NULL cipher was not negotiated.",
             "description": "NULL cipher support was not confirmed.",
             "recommendation": "Continue strong TLS configuration.",
@@ -124,7 +124,7 @@ def write_fixture_findings(workspace: Path) -> None:
             "status": "not_observed",
             "source": "phase-7-validation",
             "category": "cache",
-            "url": "https://app.example.test/login",
+            "url": "https://app.example.com/login",
             "evidence": "no-store observed; cache risk not observed.",
             "description": "Login cache risk was not observed.",
             "recommendation": "Continue no-store controls.",
@@ -212,3 +212,83 @@ def test_phase9_archive_excludes_secret_like_paths_and_reruns(tmp_path: Path) ->
     assert not any("token" in name.lower() or "cookie" in name.lower() or name.lower().endswith(".har") for name in names)
     manifest = json.loads((workspace / "reports" / "archive-manifest-latest.json").read_text(encoding="utf-8"))
     assert "config/auth.env" not in {item["relative_path"] for item in manifest["included"]}
+
+
+def test_phase9_includes_client_intake_metadata_when_present(tmp_path: Path) -> None:
+    workspace = make_workspace(tmp_path)
+    write_fixture_findings(workspace)
+    (workspace / "config" / "client-intake.yaml").write_text(
+        """
+engagement:
+  client_name: Example Company Reviewed
+  engagement_name: Reviewed engagement
+  assessment_type: low-impact assessment
+  business_owner: Business Owner
+  technical_contact: tech@example.com
+  security_contact: security@example.com
+  report_recipient: reports@example.com
+scope:
+  target_base_url: https://www.example.com
+  testing_window: Weekdays 09:00-17:00 UTC
+  rate_limits_or_traffic_constraints: Keep requests low impact
+authorization:
+  authorization_reference: AUTH-EXAMPLE-001
+  authorized_by: Authorized Person
+  allowed_testing_types: passive review and low-impact validation
+  prohibited_testing_types: destructive testing
+authenticated_testing:
+  credentials_available: false
+  role_testing_required: false
+reporting:
+  report_classification: Example Confidential
+  delivery_format: Markdown
+  due_date: 2026-01-10
+""".lstrip(),
+        encoding="utf-8",
+    )
+
+    result = run_report(workspace)
+    assert result.returncode == 0, result.stderr + result.stdout
+
+    metadata = json.loads((workspace / "reports" / "report-metadata.json").read_text(encoding="utf-8"))
+    intake = metadata["client_intake"]
+    assert intake["found"] is True
+    assert intake["placeholder_only"] is False
+    assert intake["sections"]["engagement"]["client_name"] == "Example Company Reviewed"
+    executive = (workspace / "reports" / "executive-summary.md").read_text(encoding="utf-8")
+    technical = (workspace / "reports" / "technical-report.md").read_text(encoding="utf-8")
+    assert "Example Company Reviewed" in executive
+    assert "AUTH-EXAMPLE-001" in technical
+    summary = (workspace / "reports" / "report-summary.md").read_text(encoding="utf-8")
+    assert "Client intake found: true" in summary
+    assert "Client intake appears placeholder-only: false" in summary
+
+
+def test_phase9_does_not_fail_when_client_intake_missing(tmp_path: Path) -> None:
+    workspace = make_workspace(tmp_path)
+    write_fixture_findings(workspace)
+    (workspace / "config" / "client-intake.yaml").unlink(missing_ok=True)
+
+    result = run_report(workspace)
+    assert result.returncode == 0, result.stderr + result.stdout
+
+    metadata = json.loads((workspace / "reports" / "report-metadata.json").read_text(encoding="utf-8"))
+    assert metadata["client_intake"]["found"] is False
+    summary = (workspace / "reports" / "report-summary.md").read_text(encoding="utf-8")
+    assert "Client intake found: false" in summary
+
+
+def test_phase9_placeholder_client_intake_is_nonfatal(tmp_path: Path) -> None:
+    workspace = make_workspace(tmp_path)
+    write_fixture_findings(workspace)
+    template = ROOT / "templates" / "client-intake.yaml.example"
+    (workspace / "config" / "client-intake.yaml").write_text(template.read_text(encoding="utf-8"), encoding="utf-8")
+
+    result = run_report(workspace)
+    assert result.returncode == 0, result.stderr + result.stdout
+
+    metadata = json.loads((workspace / "reports" / "report-metadata.json").read_text(encoding="utf-8"))
+    assert metadata["client_intake"]["found"] is True
+    assert metadata["client_intake"]["placeholder_only"] is True
+    summary = (workspace / "reports" / "report-summary.md").read_text(encoding="utf-8")
+    assert "Client intake appears placeholder-only: true" in summary

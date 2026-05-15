@@ -113,10 +113,10 @@ Phase 7 validates sensitive-page cache protection on the login response. `no-sto
 Phase 7 sends one direct request to `LOGIN_URL` with:
 
 ```text
-Origin: https://evil.example
+Origin: https://evil.example.com
 ```
 
-It confirms arbitrary origin reflection only when `Access-Control-Allow-Origin` reflects `https://evil.example`. Reflection is `medium/confirmed`; reflection plus `Access-Control-Allow-Credentials: true` is `high/confirmed`. Wildcard plus credentials is also treated as directly confirmed high risk. If reflection is not observed, the phase emits an informational `not_observed` object.
+It confirms arbitrary origin reflection only when `Access-Control-Allow-Origin` reflects `https://evil.example.com`. Reflection is `medium/confirmed`; reflection plus `Access-Control-Allow-Credentials: true` is `high/confirmed`. Wildcard plus credentials is also treated as directly confirmed high risk. If reflection is not observed, the phase emits an informational `not_observed` object.
 
 ### Redirects and Refresh
 

@@ -131,7 +131,7 @@ capture_target() {
   local capture_code=$?
   "${CURL_BIN}" -k -s -IL --max-time 30 "${url}" > "${redirects_file}" 2>> "${CONSOLE_LOG}"
   local redirects_code=$?
-  "${CURL_BIN}" -k -s -H "Origin: https://evil.example" -D "${cors_headers_file}" -o /dev/null --max-time 30 "${url}" >> "${CONSOLE_LOG}" 2>&1
+  "${CURL_BIN}" -k -s -H "Origin: https://evil.example.com" -D "${cors_headers_file}" -o /dev/null --max-time 30 "${url}" >> "${CONSOLE_LOG}" 2>&1
   local cors_code=$?
   set -e
 
@@ -482,7 +482,7 @@ write_cors_analysis() {
     local credentials_status="not observed"
     local risky_status="not observed"
 
-    if [[ "${acao}" == "https://evil.example" ]]; then
+    if [[ "${acao}" == "https://evil.example.com" ]]; then
       arbitrary_status="observed"
     fi
     if [[ "${acao}" == "*" ]]; then
@@ -740,7 +740,7 @@ if "no-store" not in cache_value.lower():
 
 acao = login_cors_headers.get("access-control-allow-origin", "")
 acac = login_cors_headers.get("access-control-allow-credentials", "")
-origin_reflected = acao == "https://evil.example"
+origin_reflected = acao == "https://evil.example.com"
 wildcard_origin = acao == "*"
 credentials_allowed = acac.lower() == "true"
 
@@ -763,7 +763,7 @@ else:
         "cors",
         login_url,
         f"Access-Control-Allow-Origin: {acao or 'MISSING'}",
-        "The Phase 2 arbitrary-origin probe did not observe reflection of https://evil.example.",
+        "The Phase 2 arbitrary-origin probe did not observe reflection of https://evil.example.com.",
         "Continue to validate CORS behavior for authenticated API endpoints when authenticated testing is enabled.",
     )
 

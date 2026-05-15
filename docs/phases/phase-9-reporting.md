@@ -49,6 +49,12 @@ If present, it reads finding files from:
 
 Missing source finding files are recorded in `report-summary.md` rather than treated as fatal.
 
+## Final Report Outputs
+
+`./report.sh --workspace <workspace>` generates final report artifacts. The primary human-readable final report is `reports/technical-report.md`. The executive version is `reports/executive-summary.md`. The backward-compatible single report is `reports/report.md`. Structured final findings are `reports/findings-final.json` and `reports/findings-final.csv`. Create the evidence package with `./report.sh --workspace <workspace> --archive` or `./phases/09-reporting.sh --workspace <workspace> --yes --archive`.
+
+Phase 9 reads optional workspace intake metadata from `config/client-intake.yaml` when present, records it in `reports/report-metadata.json`, and notes whether the intake appears placeholder-only in `reports/report-summary.md`. Missing or placeholder-only intake does not fail report generation.
+
 ## Outputs
 
 Phase 9 writes report deliverables under `reports/`:

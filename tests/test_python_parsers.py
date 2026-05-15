@@ -71,13 +71,13 @@ def test_parse_nikto_classification_rules(tmp_path: Path) -> None:
     raw.write_text(
         "\n".join(
             [
-                "+ Target URL: https://app.example.test/login",
+                "+ Target URL: https://app.example.com/login",
                 "+ The X-Content-Type-Options header is not present.",
                 "+ Permissions-Policy header is not present.",
                 "+ Referrer-Policy header is not present.",
                 "+ Uncommon header 'Refresh' found, with contents: 0; url=/next",
                 "+ Server banner changed from 'awselb/2.0' to 'private'",
-                "+ SSL Certificate Subject Wildcard *.example.test",
+                "+ SSL Certificate Subject Wildcard *.example.com",
                 "+ ERROR: Failed to check for updates: 403 Forbidden",
                 "+ No CGI Directories found (use '-C all' to force check all possible dirs)",
             ]
@@ -91,7 +91,7 @@ def test_parse_nikto_classification_rules(tmp_path: Path) -> None:
         "--input",
         str(raw),
         "--target",
-        "login=https://app.example.test/login",
+        "login=https://app.example.com/login",
         "--output",
         str(output),
     )
@@ -121,11 +121,11 @@ def test_parse_nikto_classification_rules(tmp_path: Path) -> None:
 def nmap_fixture() -> str:
     return """
 Starting Nmap 7.95 ( https://nmap.org )
-Nmap scan report for app.example.test (203.0.113.10)
+Nmap scan report for app.example.com (203.0.113.10)
 Host is up (0.020s latency).
 PORT    STATE SERVICE  VERSION
 80/tcp  open  http     awselb/2.0
-|_http-title: Did not follow redirect to https://app.example.test/
+|_http-title: Did not follow redirect to https://app.example.com/
 443/tcp open  ssl/http Amazon Elastic Load Balancing
 | http-server-header:
 |_  awselb/2.0
@@ -155,7 +155,7 @@ def test_parse_nmap_classification_rules(tmp_path: Path) -> None:
         "--output",
         str(output),
         "--target-host",
-        "app.example.test",
+        "app.example.com",
         "--ports",
         "80,443",
     )
@@ -188,7 +188,7 @@ def test_parse_nmap_missing_headers_with_underscore_names(tmp_path: Path) -> Non
     raw.write_text(
         """
 Starting Nmap 7.95 ( https://nmap.org )
-Nmap scan report for app.example.test (203.0.113.10)
+Nmap scan report for app.example.com (203.0.113.10)
 Host is up (0.020s latency).
 PORT    STATE SERVICE  VERSION
 443/tcp open  ssl/http Amazon Elastic Load Balancing
@@ -208,7 +208,7 @@ Nmap done: 1 IP address (1 host up) scanned in 1.23 seconds
         "--output",
         str(output),
         "--target-host",
-        "app.example.test",
+        "app.example.com",
         "--ports",
         "443",
     )
@@ -228,9 +228,9 @@ def make_workspace(tmp_path: Path, fake_nmap: Path) -> Path:
     (workspace / "config" / "target.env").write_text(
         '\n'.join(
             [
-                'TARGET_BASE_URL="https://app.example.test"',
-                'LOGIN_URL="https://app.example.test/login"',
-                'TARGET_HOST="app.example.test"',
+                'TARGET_BASE_URL="https://app.example.com"',
+                'LOGIN_URL="https://app.example.com/login"',
+                'TARGET_HOST="app.example.com"',
                 'PROFILE="deep"',
             ]
         )
@@ -260,11 +260,11 @@ done
 [[ -n "${out}" ]] || exit 2
 cat > "${out}.nmap" <<'EOF'
 Starting Nmap 7.95 ( https://nmap.org )
-Nmap scan report for app.example.test (203.0.113.10)
+Nmap scan report for app.example.com (203.0.113.10)
 Host is up (0.020s latency).
 PORT    STATE SERVICE  VERSION
 80/tcp  open  http     awselb/2.0
-|_http-title: Did not follow redirect to https://app.example.test/
+|_http-title: Did not follow redirect to https://app.example.com/
 443/tcp open  ssl/http Amazon Elastic Load Balancing
 | http-server-header:
 |_  awselb/2.0
@@ -334,37 +334,37 @@ def nuclei_jsonl_fixture() -> str:
         {
             "template-id": "tls-version",
             "info": {"name": "TLS Version", "severity": "info", "tags": "tls,ssl"},
-            "matched-at": "https://app.example.test",
+            "matched-at": "https://app.example.com",
             "extracted-results": ["TLS 1.2 supported"],
         },
         {
             "template-id": "missing-x-frame-options",
             "info": {"name": "Missing X-Frame-Options", "severity": "low", "tags": "headers,misconfig"},
-            "matched-at": "https://app.example.test",
+            "matched-at": "https://app.example.com",
             "extracted-results": ["X-Frame-Options header is missing"],
         },
         {
             "template-id": "cors-misconfig",
             "info": {"name": "CORS Misconfiguration", "severity": "medium", "tags": "cors,misconfig"},
-            "matched-at": "https://app.example.test",
+            "matched-at": "https://app.example.com",
             "extracted-results": ["Access-Control-Allow-Origin: *"],
         },
         {
             "template-id": "exposed-env-file",
             "info": {"name": "Exposed Environment File", "severity": "high", "tags": "exposure,config"},
-            "matched-at": "https://app.example.test/.env",
+            "matched-at": "https://app.example.com/.env",
             "extracted-results": ["SECRET_KEY=redacted"],
         },
         {
             "template-id": "tech-detect:nginx",
             "info": {"name": "Nginx Technology Detection", "severity": "info", "tags": "tech"},
-            "matched-at": "https://app.example.test",
+            "matched-at": "https://app.example.com",
             "extracted-results": ["nginx"],
         },
         {
             "template-id": "tech-detect:nginx",
             "info": {"name": "Nginx Technology Detection", "severity": "info", "tags": "tech"},
-            "matched-at": "https://app.example.test",
+            "matched-at": "https://app.example.com",
             "extracted-results": ["nginx"],
         },
     ]
@@ -414,9 +414,9 @@ def make_nuclei_workspace(tmp_path: Path, fake_nuclei: Path) -> Path:
     (workspace / "config" / "target.env").write_text(
         "\n".join(
             [
-                'TARGET_BASE_URL="https://app.example.test"',
-                'LOGIN_URL="https://app.example.test/login"',
-                'TARGET_HOST="app.example.test"',
+                'TARGET_BASE_URL="https://app.example.com"',
+                'LOGIN_URL="https://app.example.com/login"',
+                'TARGET_HOST="app.example.com"',
                 'PROFILE="safe"',
             ]
         )
@@ -465,8 +465,8 @@ done
 [[ -n "${targets}" && -f "${targets}" ]] || exit 3
 printf 'fake nuclei scanning %s\n' "$(cat "${targets}")"
 cat > "${out}" <<'EOF'
-{"template-id":"missing-x-frame-options","info":{"name":"Missing X-Frame-Options","severity":"low","tags":"headers,misconfig"},"matched-at":"https://app.example.test","extracted-results":["X-Frame-Options header is missing"]}
-{"template-id":"tech-detect:nginx","info":{"name":"Nginx Technology Detection","severity":"info","tags":"tech"},"matched-at":"https://app.example.test","extracted-results":["nginx"]}
+{"template-id":"missing-x-frame-options","info":{"name":"Missing X-Frame-Options","severity":"low","tags":"headers,misconfig"},"matched-at":"https://app.example.com","extracted-results":["X-Frame-Options header is missing"]}
+{"template-id":"tech-detect:nginx","info":{"name":"Nginx Technology Detection","severity":"info","tags":"tech"},"matched-at":"https://app.example.com","extracted-results":["nginx"]}
 EOF
 """.replace("__HELP_TEXT__", help_text),
         encoding="utf-8",
@@ -581,33 +581,33 @@ def test_parse_zap_classification_and_deduplication(tmp_path: Path) -> None:
                     {
                         "alert": "Content Security Policy (CSP) Header Not Set / unsafe-inline",
                         "risk": "Medium",
-                        "url": "https://app.example.test/login",
+                        "url": "https://app.example.com/login",
                         "evidence": "unsafe-inline",
                         "description": "CSP allows unsafe-inline and is missing form-action.",
                     },
                     {
                         "alert": "Content Security Policy (CSP) Header Not Set / unsafe-inline",
                         "risk": "Medium",
-                        "url": "https://app.example.test/login",
+                        "url": "https://app.example.com/login",
                         "evidence": "unsafe-inline",
                         "description": "duplicate",
                     },
                     {
                         "alert": "X-Content-Type-Options Header Missing",
                         "risk": "Low",
-                        "url": "https://app.example.test/login",
+                        "url": "https://app.example.com/login",
                         "evidence": "X-Content-Type-Options",
                     },
                     {
                         "alert": "Cookie No HttpOnly Flag",
                         "risk": "Low",
-                        "url": "https://app.example.test/login",
+                        "url": "https://app.example.com/login",
                         "evidence": "sessionid",
                     },
                     {
                         "alert": "Modern Web Application",
                         "risk": "Informational",
-                        "url": "https://app.example.test/login",
+                        "url": "https://app.example.com/login",
                         "evidence": "The application appears to be a modern web application.",
                     },
                 ]
