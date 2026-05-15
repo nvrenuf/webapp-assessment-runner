@@ -10,6 +10,24 @@ assessments/<company-slug>/<target-slug>/<run-id>/
 
 No company name, domain, credentials, cookies, HAR files, logs, reports, or generated evidence should be committed to Git.
 
+
+## Operator Documentation
+
+- [Operator guide](docs/operator-guide.md) for end-to-end workflow, safe defaults, common phase options, and production run behavior.
+- [Profiles guide](docs/profiles.md) for `safe`, `balanced`, `deep`, and `maintenance` profile intent and override guidance.
+- [Evidence and retention guide](docs/evidence-and-retention.md) for workspace evidence layout, timestamped outputs, Git hygiene, archiving, and retention.
+- Phase documentation:
+  - [Phase 0: Preflight](docs/phases/phase-0-preflight.md)
+  - [Phase 1: TLS](docs/phases/phase-1-tls.md)
+  - [Phase 2: Headers, CSP, and CORS](docs/phases/phase-2-headers-csp-cors.md)
+  - [Phase 3: Nikto](docs/phases/phase-3-nikto.md)
+  - [Phase 4: Nmap](docs/phases/phase-4-nmap.md)
+  - [Phase 5: Nuclei](docs/phases/phase-5-nuclei.md)
+  - [Phase 6: ZAP Passive](docs/phases/phase-6-zap-passive.md)
+  - [Phase 7: Final Validation](docs/phases/phase-7-validation.md)
+  - [Phase 8: Authenticated Testing](docs/phases/phase-8-authenticated.md)
+  - [Phase 9: Reporting](docs/phases/phase-9-reporting.md)
+
 ## Quick Start
 
 ```bash
@@ -84,8 +102,7 @@ For an authenticated testing scaffold:
 ./assess.sh --workspace assessments/acme-inc/www-example-com/20260513T172500Z
 ```
 
-Current phase scripts are safe runnable stubs. They create evidence directories and status files only; they do not scan targets yet.
-Preflight runs first and performs local Kali health checks plus one minimal login URL header request after scope confirmation. Use `--skip-preflight` only when you intentionally want to bypass those checks.
+Current implemented phases use low-impact defaults and write evidence plus status files under the selected workspace. Preflight runs first and performs local Kali health checks plus one minimal reachability request after scope confirmation. Use `--skip-preflight` only when you intentionally want to bypass those checks.
 
 ## Run One Phase
 
