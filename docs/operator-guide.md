@@ -62,7 +62,7 @@ Record the generated workspace path, for example:
 assessments/example-company/app-example-test/20260515T120000Z
 ```
 
-Use `--auth placeholder` only when you want the authenticated-testing scaffold. Do not place real credentials in Git, command history, or reusable repository files.
+Use `--auth placeholder` only when you want the Phase 8 authenticated-testing scaffold. Phase 8 remains scaffold-only until real credential handling and explicit authenticated automation are implemented; do not place real credentials in Git, command history, workspace `auth.env`, or reusable repository files.
 
 ### 4. Run preflight
 
@@ -86,7 +86,13 @@ Running phases individually gives the operator control over timing, monitoring, 
 ./phases/05-nuclei.sh --workspace assessments/example-company/app-example-test/20260515T120000Z --yes --verbose
 ```
 
-`assess.sh` can run the current phase sequence, but individual phase execution is preferred when the operator needs approval gates, manual review between phases, or close monitoring of long-running tools.
+`assess.sh` runs the unauthenticated baseline phases and final validation. Phase 8 remains an explicit operator decision and should be run only when authenticated testing is in scope:
+
+```bash
+./phases/08-authenticated.sh --workspace <workspace> --yes --verbose
+```
+
+Individual phase execution is preferred when the operator needs approval gates, manual review between phases, or close monitoring of long-running tools.
 
 ### 6. Monitor long-running phases
 

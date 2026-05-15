@@ -49,7 +49,6 @@ phases=(
   "05-nuclei.sh"
   "06-zap-passive.sh"
   "07-validation.sh"
-  "08-authenticated-placeholder.sh"
 )
 
 if [[ "${SKIP_PREFLIGHT}" == "true" ]]; then
