@@ -124,7 +124,7 @@ Status files are written under `status/` inside the selected workspace.
 ./report.sh --workspace assessments/acme-inc/www-example-com/20260513T172500Z
 ```
 
-Reports are written under the workspace `reports/` directory. Findings are normalized from tool parser output before being included in report-ready artifacts.
+Reports are written under the workspace `reports/` directory. Phase 9 normalizes validated findings, deduplicates scanner overlap, writes an evidence index, and can build a sanitized evidence package with `./phases/09-reporting.sh --workspace <workspace> --yes --archive`.
 
 ## Safety Model
 
