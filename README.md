@@ -13,6 +13,7 @@ No company name, domain, credentials, cookies, HAR files, logs, reports, or gene
 
 ## Operator Documentation
 
+- [Start-here runbook](START_HERE.md) for the shortest safe path from clone to final report.
 - [Operator guide](docs/operator-guide.md) for end-to-end workflow, safe defaults, common phase options, and production run behavior.
 - [Profiles guide](docs/profiles.md) for `safe`, `balanced`, `deep`, and `maintenance` profile intent and override guidance.
 - [Evidence and retention guide](docs/evidence-and-retention.md) for workspace evidence layout, timestamped outputs, Git hygiene, archiving, and retention.
@@ -47,7 +48,7 @@ No company name, domain, credentials, cookies, HAR files, logs, reports, or gene
 ./report.sh --workspace assessments/example-company/app-example-com/<run-id>
 ```
 
-Replace `<run-id>` with the run directory created by `init-assessment.sh`.
+Replace `<run-id>` with the run directory created by `init-assessment.sh`. `assess.sh` runs the unauthenticated baseline and final validation. `report.sh` is still required to generate the final report artifacts.
 
 ## Install
 
@@ -104,6 +105,8 @@ For an authenticated testing scaffold:
 ```
 
 Current implemented phases use low-impact defaults and write evidence plus status files under the selected workspace. Preflight runs first and performs local Kali health checks plus one minimal reachability request after scope confirmation. Use `--skip-preflight` only when you intentionally want to bypass those checks.
+
+`assess.sh` does not generate report deliverables. Run `report.sh` after assessment completion to generate reports from collected evidence.
 
 ## Run One Phase
 
